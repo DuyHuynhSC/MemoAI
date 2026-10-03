@@ -1,0 +1,35 @@
+[project]
+name = "memoai"
+version = "0.1.0"
+description = "Bilingual subtitle generator and language learning assistant"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fugashi>=1.5.2",
+    "google-genai>=2.28.0",
+    "openai>=3.24.0",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "pykakasi>=2.3.0",
+    "rich>=15.0.0",
+    "typer>=0.27.2",
+    "unidic-lite>=1.0.8",
+    "yt-dlp>=2026.8.19",
+]
+
+[project.optional-dependencies]
+local-whisper = [
+    "faster-whisper>=1.0.0",
+]
+
+[project.scripts]
+memoai = "memoai.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

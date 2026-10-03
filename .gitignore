@@ -1,0 +1,26 @@
+# Python & uv
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Environment files
+.env
+
+# Media & temp files
+*.mp4
+*.mkv
+*.wav
+*.mp3
+*.webm
+*.srt
+*.vtt
+downloads/
+data/
+
+# IDE
+.idea/
+.vscode/
