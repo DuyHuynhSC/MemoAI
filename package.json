@@ -1,0 +1,12 @@
+{
+  "name": "memoai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MemoAI: Bilingual subtitle generator & language learning desktop app",
+  "scripts": {
+    "server": "cd backend && uv run memoai server",
+    "desktop:web": "cd apps/desktop && npm run dev",
+    "desktop:app": "cd apps/desktop && npx tauri dev",
+    "desktop:build": "cd apps/desktop && npm run build"
+  }
+}

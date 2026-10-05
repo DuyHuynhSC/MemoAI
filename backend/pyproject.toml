@@ -5,15 +5,20 @@ description = "Bilingual subtitle generator and language learning assistant"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aiofiles>=25.1.0",
+    "fastapi>=0.142.2",
     "fugashi>=1.5.2",
+    "genanki>=0.13.1",
     "google-genai>=2.28.0",
     "openai>=3.24.0",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "pykakasi>=2.3.0",
     "rich>=15.0.0",
+    "sqlmodel>=0.0.47",
     "typer>=0.27.2",
     "unidic-lite>=1.0.8",
+    "uvicorn>=0.54.0",
     "yt-dlp>=2026.8.19",
 ]
 

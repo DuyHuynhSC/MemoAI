@@ -42,7 +42,6 @@ def test_server(
         from openai import OpenAI
         client = OpenAI(base_url=base_url, api_key=api_key or "dummy_key")
         
-        # Test listing models
         try:
             models = client.models.list()
             model_ids = [m.id for m in models.data]
@@ -50,7 +49,6 @@ def test_server(
         except Exception as e:
             console.print(f"[yellow]! Không thể liệt kê model (có thể endpoint /models bị tắt): {e}[/yellow]")
 
-        # Test simple chat completion
         console.print(f"Đang gửi prompt thử nghiệm tới model [magenta]{model}[/magenta]...")
         res = client.chat.completions.create(
             model=model,
@@ -65,6 +63,19 @@ def test_server(
 
 
 @app.command()
+def server(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host lắng nghe"),
+    port: int = typer.Option(8000, "--port", "-p", help="Cổng port"),
+):
+    """Khởi chạy MemoAI Backend API server (cho giao diện Desktop)."""
+    import uvicorn
+    console.print(f"[bold green]Khởi chạy MemoAI API Server tại:[/bold green] http://{host}:{port}")
+    uvicorn.run("memoai.api.server:app", host=host, port=port, log_level="info")
+
+
+
+
+@app.command()
 def run(
     input_path_or_url: str = typer.Argument(..., help="Đường dẫn file video/audio hoặc link YouTube"),
     src: str = typer.Option("ja", "--src", "-s", help="Ngôn ngữ gốc (mặc định: ja - Nhật)"),
@@ -72,6 +83,7 @@ def run(
     asr: str = typer.Option("gemini", "--asr", help="Bộ nhận dạng giọng nói: 'gemini' hoặc 'openai'"),
     mt: str = typer.Option("openai", "--mt", help="Bộ dịch: 'openai' (cho Qwen/Ollama) hoặc 'gemini'"),
     gemini_key: Optional[str] = typer.Option(None, "--gemini-key", help="API key của Google Gemini"),
+    gemini_model: Optional[str] = typer.Option(None, "--gemini-model", help="Tên model Gemini (mặc định: gemini-2.5-flash)"),
     openai_base_url: Optional[str] = typer.Option(None, "--openai-base-url", help="Base URL cho server OpenAI/Qwen"),
     openai_key: Optional[str] = typer.Option(None, "--openai-key", help="API key cho server OpenAI/Qwen"),
     openai_model: Optional[str] = typer.Option(None, "--openai-model", help="Tên model OpenAI/Qwen"),
@@ -89,6 +101,7 @@ def run(
 
     # 1. Setup ASR Provider
     g_key = gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
+    g_model = gemini_model or settings.gemini_asr_model
     oa_base = openai_base_url or settings.openai_base_url or os.getenv("OPENAI_BASE_URL")
     oa_key = openai_key or settings.openai_api_key or os.getenv("OPENAI_API_KEY")
     oa_model = openai_model or settings.openai_mt_model
@@ -97,7 +110,7 @@ def run(
         if not g_key:
             console.print("[red]Lỗi: Chưa cấu hình GEMINI_API_KEY (dùng flag --gemini-key hoặc set biến môi trường GEMINI_API_KEY).[/red]")
             sys.exit(1)
-        asr_provider = GeminiASR(api_key=g_key, model=settings.gemini_asr_model)
+        asr_provider = GeminiASR(api_key=g_key, model=g_model)
     elif asr.lower() == "openai":
         asr_provider = OpenAICompatASR(base_url=oa_base, api_key=oa_key, model=settings.openai_asr_model)
     else:
@@ -109,7 +122,7 @@ def run(
         if not g_key:
             console.print("[red]Lỗi: Chưa cấu hình GEMINI_API_KEY cho dịch thuật.[/red]")
             sys.exit(1)
-        mt_provider = GeminiTranslator(api_key=g_key, model=settings.gemini_mt_model)
+        mt_provider = GeminiTranslator(api_key=g_key, model=g_model)
     elif mt.lower() == "openai":
         if not oa_base:
             console.print("[yellow]Cảnh báo: OPENAI_BASE_URL chưa được chỉ định, sẽ mặc định sử dụng endpoint OpenAI chuẩn hoặc biến môi trường.[/yellow]")

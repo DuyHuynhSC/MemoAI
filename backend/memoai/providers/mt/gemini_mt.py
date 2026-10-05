@@ -1,16 +1,60 @@
 import json
+import time
 from google import genai
 from google.genai import types
+from google.genai import errors
 from memoai.providers.mt.base import TranslatorProvider, TranslationBatch, TranslationItem
+
+FALLBACK_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+]
 
 
 class GeminiTranslator(TranslatorProvider):
-    """Machine Translation using Google Gemini API."""
+    """Machine Translation using Google Gemini API.
+    Includes automatic retry with exponential backoff on 503/429 and fallback models.
+    """
 
     def __init__(self, api_key: str | None = None, model: str = "gemini-2.5-flash"):
         self.api_key = api_key
         self.model = model
         self.client = genai.Client(api_key=self.api_key)
+
+    def _call_generate_with_retry(self, prompt: str) -> str:
+        models_to_try = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
+        last_error = None
+
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=TranslationBatch,
+            temperature=0.2,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+        )
+
+        for model_name in models_to_try:
+            for attempt in range(1, 4):
+                try:
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=[prompt],
+                        config=config,
+                    )
+                    return response.text or "{}"
+                except (errors.APIError, Exception) as e:
+                    err_msg = str(e)
+                    last_error = e
+                    is_transient = "503" in err_msg or "429" in err_msg or "UNAVAILABLE" in err_msg or "RESOURCE_EXHAUSTED" in err_msg
+                    if is_transient:
+                        wait_sec = attempt * 3
+                        time.sleep(wait_sec)
+                        continue
+                    else:
+                        break
+
+        raise last_error or RuntimeError("Gemini MT request failed across all candidate models.")
 
     def _translate_chunk(
         self,
@@ -38,17 +82,7 @@ class GeminiTranslator(TranslatorProvider):
             f"{json.dumps(items_payload, ensure_ascii=False, indent=2)}"
         )
 
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=[prompt],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=TranslationBatch,
-                temperature=0.2
-            )
-        )
-
-        raw_text = response.text or "{}"
+        raw_text = self._call_generate_with_retry(prompt)
         data = json.loads(raw_text)
         item_list = data.get("items", [])
 
@@ -66,7 +100,6 @@ class GeminiTranslator(TranslatorProvider):
         if not texts:
             return []
 
-        # Batch in chunks of 30 lines
         batch_size = 30
         results: list[str] = []
 
