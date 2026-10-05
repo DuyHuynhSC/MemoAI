@@ -56,3 +56,22 @@ export interface WordDefinition {
   context_sentence?: string;
   saved?: boolean;
 }
+
+export interface AIProfile {
+  id?: number;
+  name: string;
+  provider_type: "gemini" | "openai_compat";
+  api_key?: string;
+  base_url?: string;
+  model: string;
+  can_asr: boolean;
+  can_translate: boolean;
+  created_at?: string;
+}
+
+export interface AppSettings {
+  id: number;
+  default_asr_profile_id?: number;
+  default_mt_profile_id?: number;
+  default_translation_mode: string;
+}

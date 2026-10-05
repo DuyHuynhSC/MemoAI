@@ -1,4 +1,4 @@
-import type { Project, Segment, Vocab, WordDefinition } from "../types";
+import type { Project, Segment, Vocab, WordDefinition, AIProfile, AppSettings } from "../types";
 
 export const API_BASE = "http://127.0.0.1:8000";
 
@@ -14,6 +14,8 @@ export async function createProject(payload: {
   target_lang?: string;
   asr_provider?: string;
   mt_provider?: string;
+  asr_profile_id?: number;
+  mt_profile_id?: number;
   gemini_key?: string;
   openai_base_url?: string;
   openai_model?: string;
@@ -74,4 +76,63 @@ export function getAnkiExportUrl(): string {
 
 export function getMediaUrl(projectId: number): string {
   return `${API_BASE}/api/media/${projectId}`;
+}
+
+// ==================== SETTINGS & PROFILES ====================
+
+export async function fetchSettings(): Promise<{ settings: AppSettings; profiles: AIProfile[] }> {
+  const res = await fetch(`${API_BASE}/api/settings`);
+  if (!res.ok) throw new Error("Failed to fetch settings");
+  return res.json();
+}
+
+export async function updateSettings(payload: Partial<AppSettings>): Promise<AppSettings> {
+  const res = await fetch(`${API_BASE}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to update settings");
+  return res.json();
+}
+
+export async function fetchProfiles(): Promise<AIProfile[]> {
+  const res = await fetch(`${API_BASE}/api/settings/profiles`);
+  if (!res.ok) throw new Error("Failed to fetch profiles");
+  return res.json();
+}
+
+export async function saveProfile(profile: Partial<AIProfile>): Promise<AIProfile> {
+  const isEdit = !!profile.id;
+  const url = isEdit
+    ? `${API_BASE}/api/settings/profiles/${profile.id}`
+    : `${API_BASE}/api/settings/profiles`;
+  const method = isEdit ? "PUT" : "POST";
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+  if (!res.ok) throw new Error("Failed to save profile");
+  return res.json();
+}
+
+export async function deleteProfile(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/settings/profiles/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to delete profile");
+}
+
+export async function testProfileConnection(payload: {
+  provider_type: string;
+  api_key?: string;
+  base_url?: string;
+  model: string;
+}): Promise<{ success: boolean; latency_ms?: number; message: string }> {
+  const res = await fetch(`${API_BASE}/api/settings/profiles/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to test connection");
+  return res.json();
 }

@@ -1,21 +1,51 @@
-import React, { useState } from "react";
-import { X, Film, Sparkles, Video } from "lucide-react";
-import { createProject } from "../api/client";
-import type { Project } from "../types";
+import React, { useEffect, useState } from "react";
+import { X, Film, Sparkles, Video, Settings as SettingsIcon } from "lucide-react";
+import { createProject, fetchSettings } from "../api/client";
+import type { Project, AIProfile } from "../types";
 
 interface CreateModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreated: (project: Project) => void;
+  onOpenSettings?: () => void;
 }
 
-export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onCreated }) => {
+export const CreateModal: React.FC<CreateModalProps> = ({
+  isOpen,
+  onClose,
+  onCreated,
+  onOpenSettings,
+}) => {
   const [urlOrPath, setUrlOrPath] = useState("");
-  const [asrProvider, setAsrProvider] = useState("gemini");
-  const [mtProvider, setMtProvider] = useState("gemini");
+  const [profiles, setProfiles] = useState<AIProfile[]>([]);
+  const [selectedAsrProfileId, setSelectedAsrProfileId] = useState<number | undefined>(undefined);
+  const [selectedMtProfileId, setSelectedMtProfileId] = useState<number | undefined>(undefined);
   const [mode, setMode] = useState("learning");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchSettings()
+        .then((data) => {
+          setProfiles(data.profiles);
+          if (data.settings.default_asr_profile_id) {
+            setSelectedAsrProfileId(data.settings.default_asr_profile_id);
+          } else if (data.profiles.length > 0) {
+            setSelectedAsrProfileId(data.profiles[0].id);
+          }
+          if (data.settings.default_mt_profile_id) {
+            setSelectedMtProfileId(data.settings.default_mt_profile_id);
+          } else if (data.profiles.length > 0) {
+            setSelectedMtProfileId(data.profiles[0].id);
+          }
+          if (data.settings.default_translation_mode) {
+            setMode(data.settings.default_translation_mode);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -30,8 +60,8 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onCre
         url_or_path: urlOrPath.trim(),
         source_lang: "ja",
         target_lang: "vi",
-        asr_provider: asrProvider,
-        mt_provider: mtProvider,
+        asr_profile_id: selectedAsrProfileId,
+        mt_profile_id: selectedMtProfileId,
         mode: mode,
       });
       onCreated(project);
@@ -42,6 +72,9 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onCre
       setLoading(false);
     }
   };
+
+  const asrOptions = profiles.filter((p) => p.can_asr);
+  const mtOptions = profiles.filter((p) => p.can_translate);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -87,33 +120,59 @@ export const CreateModal: React.FC<CreateModalProps> = ({ isOpen, onClose, onCre
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Nhận dạng giọng nói (ASR)
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  Bộ nhận dạng giọng (ASR)
+                </label>
+              </div>
               <select
-                value={asrProvider}
-                onChange={(e) => setAsrProvider(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                value={selectedAsrProfileId || ""}
+                onChange={(e) => setSelectedAsrProfileId(parseInt(e.target.value))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="gemini">Google Gemini (Khuyên dùng)</option>
-                <option value="openai">OpenAI / Whisper Server</option>
+                {asrOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.model})
+                  </option>
+                ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Bộ dịch song ngữ (MT)
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  Bộ dịch song ngữ (MT)
+                </label>
+              </div>
               <select
-                value={mtProvider}
-                onChange={(e) => setMtProvider(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                value={selectedMtProfileId || ""}
+                onChange={(e) => setSelectedMtProfileId(parseInt(e.target.value))}
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
               >
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">Qwen / Ollama Server</option>
+                {mtOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.model})
+                  </option>
+                ))}
               </select>
             </div>
           </div>
+
+          {onOpenSettings && (
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSettings();
+                }}
+                className="text-[11px] text-indigo-400 hover:text-indigo-300 inline-flex items-center space-x-1"
+              >
+                <SettingsIcon className="w-3 h-3" />
+                <span>Quản lý danh sách kết nối AI & API Key</span>
+              </button>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">

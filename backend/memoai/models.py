@@ -57,3 +57,28 @@ class Vocab(SQLModel, table=True):
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
+
+
+class AIProfile(SQLModel, table=True):
+    __tablename__ = "ai_profiles"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    provider_type: str = Field(default="gemini")  # "gemini", "openai_compat"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None  # e.g. http://localhost:11434/v1
+    model: str = Field(default="gemini-2.5-flash")
+    can_asr: bool = Field(default=True)
+    can_translate: bool = Field(default=True)
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+
+
+class AppSettings(SQLModel, table=True):
+    __tablename__ = "app_settings"
+
+    id: int = Field(default=1, primary_key=True)
+    default_asr_profile_id: Optional[int] = None
+    default_mt_profile_id: Optional[int] = None
+    default_translation_mode: str = Field(default="learning")

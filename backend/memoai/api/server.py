@@ -1,4 +1,5 @@
 import os
+import time
 import threading
 from pathlib import Path
 from typing import Optional
@@ -9,7 +10,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from memoai.db import init_db, get_session, engine
-from memoai.models import Project, SegmentRecord, Vocab
+from memoai.models import Project, SegmentRecord, Vocab, AIProfile, AppSettings
 from memoai.config import settings
 from memoai.providers.asr.gemini_asr import GeminiASR
 from memoai.providers.asr.openai_asr import OpenAICompatASR
@@ -23,9 +24,53 @@ from memoai.services.anki import export_anki_deck
 # Initialize tables
 init_db()
 
+
+def seed_default_profiles():
+    with Session(engine) as session:
+        existing = session.exec(select(AIProfile)).first()
+        if not existing:
+            g_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
+            g_profile = AIProfile(
+                name="Google Gemini Flash (Mặc định)",
+                provider_type="gemini",
+                api_key=g_key,
+                model=settings.gemini_asr_model or "gemini-2.5-flash",
+                can_asr=True,
+                can_translate=True,
+            )
+            session.add(g_profile)
+            session.commit()
+            session.refresh(g_profile)
+
+            q_profile = AIProfile(
+                name="Server Qwen 3.8 / Ollama Nội Bộ",
+                provider_type="openai_compat",
+                api_key=settings.openai_api_key or "dummy_key",
+                base_url=settings.openai_base_url or "http://localhost:11434/v1",
+                model=settings.openai_mt_model or "qwen2.5:latest",
+                can_asr=False,
+                can_translate=True,
+            )
+            session.add(q_profile)
+            session.commit()
+            session.refresh(q_profile)
+
+            app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+            if not app_set:
+                app_set = AppSettings(
+                    id=1,
+                    default_asr_profile_id=g_profile.id,
+                    default_mt_profile_id=g_profile.id,
+                    default_translation_mode="learning",
+                )
+                session.add(app_set)
+                session.commit()
+
+
+seed_default_profiles()
+
 app = FastAPI(title="MemoAI Desktop API", version="0.1.0")
 
-# Allow requests from Tauri (tauri://localhost or http://localhost:5173)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,8 +86,10 @@ class CreateProjectRequest(BaseModel):
     url_or_path: str
     source_lang: str = "ja"
     target_lang: str = "vi"
-    asr_provider: str = "gemini"
-    mt_provider: str = "gemini"
+    asr_provider: Optional[str] = "gemini"
+    mt_provider: Optional[str] = "gemini"
+    asr_profile_id: Optional[int] = None
+    mt_profile_id: Optional[int] = None
     gemini_key: Optional[str] = None
     openai_base_url: Optional[str] = None
     openai_key: Optional[str] = None
@@ -59,6 +106,19 @@ class AddVocabRequest(BaseModel):
     pos: Optional[str] = None
     context_sentence: Optional[str] = None
     context_translation: Optional[str] = None
+
+
+class TestProfileRequest(BaseModel):
+    provider_type: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: str
+
+
+class UpdateSettingsRequest(BaseModel):
+    default_asr_profile_id: Optional[int] = None
+    default_mt_profile_id: Optional[int] = None
+    default_translation_mode: Optional[str] = "learning"
 
 
 def run_pipeline_task(project_id: int, req: CreateProjectRequest):
@@ -80,17 +140,33 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
         try:
             update_progress("Đang khởi tạo pipeline...", 0.05)
 
-            # 1. Setup Providers
-            g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
-            if req.asr_provider == "gemini":
-                asr = GeminiASR(api_key=g_key, model=settings.gemini_asr_model)
+            # 1. Resolve ASR Provider
+            asr_profile = session.get(AIProfile, req.asr_profile_id) if req.asr_profile_id else None
+            if asr_profile:
+                if asr_profile.provider_type == "gemini":
+                    asr = GeminiASR(api_key=asr_profile.api_key or settings.gemini_api_key, model=asr_profile.model)
+                else:
+                    asr = OpenAICompatASR(base_url=asr_profile.base_url, api_key=asr_profile.api_key, model=asr_profile.model)
             else:
-                asr = OpenAICompatASR(base_url=req.openai_base_url, api_key=req.openai_key, model=settings.openai_asr_model)
+                g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
+                if req.asr_provider == "gemini":
+                    asr = GeminiASR(api_key=g_key, model=settings.gemini_asr_model)
+                else:
+                    asr = OpenAICompatASR(base_url=req.openai_base_url, api_key=req.openai_key, model=settings.openai_asr_model)
 
-            if req.mt_provider == "gemini":
-                mt = GeminiTranslator(api_key=g_key, model=settings.gemini_mt_model)
+            # 2. Resolve MT Provider
+            mt_profile = session.get(AIProfile, req.mt_profile_id) if req.mt_profile_id else None
+            if mt_profile:
+                if mt_profile.provider_type == "gemini":
+                    mt = GeminiTranslator(api_key=mt_profile.api_key or settings.gemini_api_key, model=mt_profile.model)
+                else:
+                    mt = OpenAICompatTranslator(base_url=mt_profile.base_url, api_key=mt_profile.api_key, model=mt_profile.model)
             else:
-                mt = OpenAICompatTranslator(base_url=req.openai_base_url, api_key=req.openai_key, model=req.openai_model or settings.openai_mt_model)
+                g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
+                if req.mt_provider == "gemini":
+                    mt = GeminiTranslator(api_key=g_key, model=settings.gemini_mt_model)
+                else:
+                    mt = OpenAICompatTranslator(base_url=req.openai_base_url, api_key=req.openai_key, model=req.openai_model or settings.openai_mt_model)
 
             runner = PipelineRunner(
                 asr_provider=asr,
@@ -100,7 +176,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 progress_cb=update_progress,
             )
 
-            # 2. Run Pipeline
+            # 3. Run Pipeline
             project_dir = settings.get_data_dir() / f"project_{project_id}"
             out_files = runner.run(
                 input_path_or_url=req.url_or_path,
@@ -108,9 +184,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 translation_mode=req.mode,
             )
 
-            # 3. Read generated SRT to populate DB segments
-            from memoai.media import extract_audio
-            # Update project info
+            # 4. Save Media Path & Status
             media_path = out_files.get("media")
             p = session.get(Project, project_id)
             if p and media_path:
@@ -121,14 +195,11 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 session.add(p)
                 session.commit()
 
-            # Read back segments
-            from memoai.exporters.srt import export_srt
-            # Re-read the generated segments from runner by parsing .ja.srt and .vi.srt
+            # 5. Populate segments into DB
             ja_srt_path = out_files.get("src_srt")
             vi_srt_path = out_files.get("tgt_srt")
 
             if ja_srt_path and ja_srt_path.exists():
-                import re
                 content = ja_srt_path.read_text(encoding="utf-8")
                 vi_content = vi_srt_path.read_text(encoding="utf-8") if vi_srt_path and vi_srt_path.exists() else ""
 
@@ -183,6 +254,130 @@ def health():
     return {"status": "ok", "app": "MemoAI Desktop"}
 
 
+# ==================== SETTINGS & PROFILES ====================
+
+@app.get("/api/settings")
+def get_settings(session: Session = Depends(get_session)):
+    app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+    if not app_set:
+        app_set = AppSettings(id=1, default_translation_mode="learning")
+        session.add(app_set)
+        session.commit()
+        session.refresh(app_set)
+    profiles = session.exec(select(AIProfile).order_by(AIProfile.id)).all()
+    return {
+        "settings": app_set,
+        "profiles": profiles,
+    }
+
+
+@app.put("/api/settings")
+def update_settings(req: UpdateSettingsRequest, session: Session = Depends(get_session)):
+    app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+    if not app_set:
+        app_set = AppSettings(id=1)
+    if req.default_asr_profile_id is not None:
+        app_set.default_asr_profile_id = req.default_asr_profile_id
+    if req.default_mt_profile_id is not None:
+        app_set.default_mt_profile_id = req.default_mt_profile_id
+    if req.default_translation_mode:
+        app_set.default_translation_mode = req.default_translation_mode
+    session.add(app_set)
+    session.commit()
+    session.refresh(app_set)
+    return app_set
+
+
+@app.get("/api/settings/profiles")
+def list_profiles(session: Session = Depends(get_session)):
+    return session.exec(select(AIProfile).order_by(AIProfile.id)).all()
+
+
+@app.post("/api/settings/profiles")
+def create_profile(profile: AIProfile, session: Session = Depends(get_session)):
+    profile.id = None
+    session.add(profile)
+    session.commit()
+    session.refresh(profile)
+    return profile
+
+
+@app.put("/api/settings/profiles/{profile_id}")
+def update_profile(profile_id: int, updated: AIProfile, session: Session = Depends(get_session)):
+    p = session.get(AIProfile, profile_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    p.name = updated.name
+    p.provider_type = updated.provider_type
+    p.api_key = updated.api_key
+    p.base_url = updated.base_url
+    p.model = updated.model
+    p.can_asr = updated.can_asr
+    p.can_translate = updated.can_translate
+    session.add(p)
+    session.commit()
+    session.refresh(p)
+    return p
+
+
+@app.delete("/api/settings/profiles/{profile_id}")
+def delete_profile(profile_id: int, session: Session = Depends(get_session)):
+    p = session.get(AIProfile, profile_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    session.delete(p)
+    session.commit()
+    return {"ok": True}
+
+
+@app.post("/api/settings/profiles/test")
+def test_profile(req: TestProfileRequest):
+    """Test connection to an AI provider profile and report latency."""
+    t0 = time.time()
+    try:
+        if req.provider_type == "gemini":
+            from google import genai
+            from google.genai import types
+            g_key = req.api_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
+            if not g_key:
+                return {"success": False, "message": "Chưa có Gemini API Key."}
+            client = genai.Client(api_key=g_key)
+            res = client.models.generate_content(
+                model=req.model,
+                contents="Ping. Say OK",
+                config=types.GenerateContentConfig(
+                    max_output_tokens=10,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+                )
+            )
+            elapsed = int((time.time() - t0) * 1000)
+            return {
+                "success": True,
+                "latency_ms": elapsed,
+                "message": f"Kết nối Gemini thành công! (Mô hình {req.model}, độ trễ {elapsed}ms)",
+            }
+        else:
+            from openai import OpenAI
+            base_url = req.base_url or "http://localhost:11434/v1"
+            client = OpenAI(base_url=base_url, api_key=req.api_key or "dummy_key")
+            res = client.chat.completions.create(
+                model=req.model,
+                messages=[{"role": "user", "content": "Ping. Say OK"}],
+                max_tokens=10,
+            )
+            elapsed = int((time.time() - t0) * 1000)
+            reply = res.choices[0].message.content or "OK"
+            return {
+                "success": True,
+                "latency_ms": elapsed,
+                "message": f"Kết nối Server thành công! (Mô hình {req.model}, phản hồi: '{reply.strip()}', độ trễ {elapsed}ms)",
+            }
+    except Exception as e:
+        return {"success": False, "message": f"Lỗi kết nối: {str(e)}"}
+
+
+# ==================== PROJECTS ====================
+
 @app.get("/api/projects")
 def list_projects(session: Session = Depends(get_session)):
     return session.exec(select(Project).order_by(Project.created_at.desc())).all()
@@ -219,7 +414,6 @@ def get_project(project_id: int, session: Session = Depends(get_session)):
         select(SegmentRecord).where(SegmentRecord.project_id == project_id).order_by(SegmentRecord.idx)
     ).all()
 
-    # Split segments into interactive tokens
     seg_list = []
     for s in segments:
         tokens = []
@@ -273,7 +467,6 @@ def stream_media(project_id: int, request: Request, session: Session = Depends(g
     if not range_header:
         return FileResponse(path, media_type="video/mp4")
 
-    # Range handling for video player seeking
     range_match = range_header.replace("bytes=", "").split("-")
     start = int(range_match[0])
     end = int(range_match[1]) if range_match[1] else file_size - 1

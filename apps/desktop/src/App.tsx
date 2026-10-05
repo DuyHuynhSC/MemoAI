@@ -8,6 +8,7 @@ import {
   Play,
   CheckCircle2,
   AlertCircle,
+  Settings,
 } from "lucide-react";
 import type { Project, Segment, WordDefinition } from "./types";
 import { fetchProjects, fetchProject, deleteProject, lookupWord } from "./api/client";
@@ -16,6 +17,7 @@ import { TranscriptList } from "./components/TranscriptList";
 import { WordPopup } from "./components/WordPopup";
 import { CreateModal } from "./components/CreateModal";
 import { VocabModal } from "./components/VocabModal";
+import { SettingsModal } from "./components/SettingsModal";
 
 export const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -27,6 +29,7 @@ export const App: React.FC = () => {
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isVocabOpen, setIsVocabOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Word Popup
   const [wordDef, setWordDef] = useState<WordDefinition | null>(null);
@@ -126,6 +129,15 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex items-center space-x-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition"
+            title="Cài đặt kết nối AI"
+          >
+            <Settings className="w-4 h-4 text-slate-400" />
+            <span>Cài đặt AI</span>
+          </button>
+
           <button
             onClick={() => setIsVocabOpen(true)}
             className="flex items-center space-x-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition"
@@ -309,9 +321,12 @@ export const App: React.FC = () => {
         onCreated={() => {
           loadProjects();
         }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       <VocabModal isOpen={isVocabOpen} onClose={() => setIsVocabOpen(false)} />
+
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
       <WordPopup
         definition={wordDef}
