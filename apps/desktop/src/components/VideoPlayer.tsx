@@ -47,42 +47,106 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [duration, setDuration] = useState(0);
   const [isLoopingSegment, setIsLoopingSegment] = useState(false);
   const [isShadowing, setIsShadowing] = useState(false);
+  const [isShadowingPaused, setIsShadowingPaused] = useState(false);
+  const [shadowingSegment, setShadowingSegment] = useState<Segment | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [isFontPopoverOpen, setIsFontPopoverOpen] = useState(false);
-  const lastActiveIdxRef = useRef<number>(-1);
+  const shadowedIdxRef = useRef<number>(-1);
 
   const activeSegment = segments.find(
     (s) => currentTime >= s.start && currentTime <= s.end
   );
-  const activeIdx = segments.findIndex(
-    (s) => currentTime >= s.start && currentTime <= s.end
-  );
 
-  useEffect(() => {
-    if (!videoRef.current || !activeSegment) return;
+  // During shadowing pause, lock to the sentence that just finished so its subtitles remain visible!
+  const displaySegment = (isShadowingPaused && shadowingSegment) ? shadowingSegment : activeSegment;
 
-    if (isLoopingSegment && currentTime >= activeSegment.end - 0.1) {
-      videoRef.current.currentTime = activeSegment.start;
-      videoRef.current.play();
-    }
+  const checkPlaybackRules = (curr: number) => {
+    if (!videoRef.current) return;
 
-    if (isShadowing && activeIdx !== -1 && activeIdx !== lastActiveIdxRef.current) {
-      if (currentTime >= activeSegment.end - 0.15) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-        lastActiveIdxRef.current = activeIdx;
+    // 1. Looping Segment Mode
+    if (isLoopingSegment) {
+      const curSeg = segments.find((s) => curr >= s.start && curr <= s.end);
+      if (curSeg && curr >= curSeg.end - 0.1) {
+        videoRef.current.currentTime = curSeg.start;
+        videoRef.current.play();
+        return;
       }
     }
-  }, [currentTime, isLoopingSegment, isShadowing, activeSegment, activeIdx]);
+
+    // 2. Shadowing Mode: Detect sentence end with generous buffer to prevent 250ms timeupdate skips
+    if (isShadowing && !isShadowingPaused) {
+      const segIdx = segments.findIndex(
+        (s) => curr >= s.start - 0.1 && curr <= s.end + 0.35
+      );
+      if (segIdx !== -1 && segIdx !== shadowedIdxRef.current) {
+        const seg = segments[segIdx];
+        if (curr >= seg.end - 0.15) {
+          videoRef.current.pause();
+          videoRef.current.currentTime = Math.min(curr, seg.end);
+          setIsPlaying(false);
+          setIsShadowingPaused(true);
+          setShadowingSegment(seg);
+          shadowedIdxRef.current = segIdx;
+        }
+      }
+    }
+  };
+
+  // High-frequency interval (50ms) to ensure sentence boundaries are NEVER missed by browser timeupdate throttling
+  useEffect(() => {
+    if (!isPlaying || (!isShadowing && !isLoopingSegment)) return;
+
+    const timer = setInterval(() => {
+      if (videoRef.current) {
+        checkPlaybackRules(videoRef.current.currentTime);
+      }
+    }, 50);
+
+    return () => clearInterval(timer);
+  }, [isPlaying, isShadowing, isShadowingPaused, isLoopingSegment, segments]);
+
+  const resumeShadowing = () => {
+    if (!videoRef.current) return;
+    setIsShadowingPaused(false);
+    setShadowingSegment(null);
+
+    const currIdx = shadowedIdxRef.current;
+    if (currIdx >= 0 && currIdx < segments.length - 1) {
+      const nextSeg = segments[currIdx + 1];
+      videoRef.current.currentTime = nextSeg.start;
+      onTimeUpdate(nextSeg.start);
+    }
+    videoRef.current.play();
+    setIsPlaying(true);
+  };
 
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
+      setIsPlaying(false);
     } else {
-      videoRef.current.play();
+      if (isShadowingPaused) {
+        resumeShadowing();
+      } else {
+        videoRef.current.play();
+        setIsPlaying(true);
+      }
     }
-    setIsPlaying(!isPlaying);
+  };
+
+  const toggleShadowing = () => {
+    if (isShadowing) {
+      setIsShadowing(false);
+      setIsShadowingPaused(false);
+      setShadowingSegment(null);
+      shadowedIdxRef.current = -1;
+    } else {
+      setIsShadowing(true);
+      setIsShadowingPaused(false);
+      setShadowingSegment(null);
+      shadowedIdxRef.current = -1;
+    }
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,6 +154,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) {
       videoRef.current.currentTime = time;
     }
+    setIsShadowingPaused(false);
+    setShadowingSegment(null);
+    shadowedIdxRef.current = -1;
     onTimeUpdate(time);
   };
 
@@ -101,8 +168,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const replayCurrentSegment = () => {
-    if (!videoRef.current || !activeSegment) return;
-    videoRef.current.currentTime = activeSegment.start;
+    const targetSeg = shadowingSegment || activeSegment;
+    if (!videoRef.current || !targetSeg) return;
+    setIsShadowingPaused(false);
+    setShadowingSegment(null);
+    shadowedIdxRef.current = -1;
+    videoRef.current.currentTime = targetSeg.start;
+    onTimeUpdate(targetSeg.start);
     videoRef.current.play();
     setIsPlaying(true);
   };
@@ -114,7 +186,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           ref={videoRef}
           src={getMediaUrl(project.id)}
           onTimeUpdate={() => {
-            if (videoRef.current) onTimeUpdate(videoRef.current.currentTime);
+            if (videoRef.current) {
+              const curr = videoRef.current.currentTime;
+              onTimeUpdate(curr);
+              checkPlaybackRules(curr);
+            }
           }}
           onLoadedMetadata={() => {
             if (videoRef.current) setDuration(videoRef.current.duration);
@@ -125,21 +201,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onClick={togglePlay}
         />
 
-        {activeSegment && (
-          <div className="absolute bottom-6 inset-x-4 flex justify-center pointer-events-none">
+        {displaySegment && (
+          <div className="absolute bottom-6 inset-x-4 flex flex-col items-center pointer-events-none">
+            {isShadowing && isShadowingPaused && (
+              <div className="mb-3 inline-flex items-center space-x-2 bg-emerald-600/95 text-white text-xs font-semibold px-4 py-1.5 rounded-full shadow-2xl backdrop-blur-md pointer-events-auto border border-emerald-400/40 animate-pulse">
+                <Headphones className="w-3.5 h-3.5" />
+                <span>Tạm dừng Shadowing · Luyện đọc nhại lại câu này</span>
+                <button
+                  onClick={resumeShadowing}
+                  className="ml-2 px-3 py-0.5 bg-white text-emerald-800 rounded-md font-bold hover:bg-emerald-50 text-[11px] shadow-sm transition"
+                >
+                  Tiếp tục câu sau ➔
+                </button>
+              </div>
+            )}
+
             <div className="bg-black/80 backdrop-blur-md px-6 py-3.5 rounded-2xl max-w-3xl text-center shadow-2xl border border-white/10 pointer-events-auto transition duration-150">
               {showJapanese && (
                 <div
                   style={{ fontSize: `${jaFontSize || 26}px`, lineHeight: 1.35 }}
                   className="font-semibold text-white tracking-wide flex flex-wrap justify-center items-end gap-x-1.5 gap-y-1.5"
                 >
-                  {activeSegment.tokens && activeSegment.tokens.length > 0 ? (
-                    activeSegment.tokens.map((token, idx) => (
+                  {displaySegment.tokens && displaySegment.tokens.length > 0 ? (
+                    displaySegment.tokens.map((token, idx) => (
                       <span
                         key={idx}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onWordClick(token.surface, activeSegment);
+                          onWordClick(token.surface, displaySegment);
                         }}
                         className="hover:text-indigo-400 hover:bg-white/10 px-1 py-0.5 rounded cursor-pointer transition select-none"
                       >
@@ -154,23 +243,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                       </span>
                     ))
                   ) : (
-                    <span>{activeSegment.text}</span>
+                    <span>{displaySegment.text}</span>
                   )}
                 </div>
               )}
 
-              {showRomaji && activeSegment.romanized && (
+              {showRomaji && displaySegment.romanized && (
                 <p className="text-xs md:text-sm text-indigo-300 font-mono mt-1 tracking-wider">
-                  {activeSegment.romanized}
+                  {displaySegment.romanized}
                 </p>
               )}
 
-              {showTranslation && activeSegment.translation && (
+              {showTranslation && displaySegment.translation && (
                 <p
                   style={{ fontSize: `${viFontSize || 20}px`, lineHeight: 1.35 }}
                   className="font-medium mt-2 drop-shadow text-emerald-400 dark:text-emerald-300"
                 >
-                  {activeSegment.translation}
+                  {displaySegment.translation}
                 </p>
               )}
             </div>
@@ -224,16 +313,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </button>
 
             <button
-              onClick={() => setIsShadowing(!isShadowing)}
+              onClick={toggleShadowing}
               title="Chế độ Shadowing: tự dừng sau mỗi câu để bạn đọc theo"
               className={`p-2.5 rounded-xl border transition flex items-center space-x-1.5 text-xs font-medium ${
                 isShadowing
-                  ? "bg-emerald-50 dark:bg-emerald-500/20 border-emerald-500 text-emerald-700 dark:text-emerald-300"
+                  ? "bg-emerald-50 dark:bg-emerald-500/20 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500"
                   : "bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Headphones className="w-4 h-4" />
-              <span>Shadowing</span>
+              <span>Shadowing {isShadowing && (isShadowingPaused ? "(Đang dừng)" : "(Bật)")}</span>
             </button>
           </div>
 
