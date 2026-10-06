@@ -10,6 +10,7 @@ export async function fetchProjects(): Promise<Project[]> {
 
 export async function createProject(payload: {
   url_or_path: string;
+  title?: string;
   source_lang?: string;
   target_lang?: string;
   asr_provider?: string;
@@ -27,6 +28,23 @@ export async function createProject(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to create project");
+  return res.json();
+}
+
+export async function updateProject(id: number, payload: { title?: string }): Promise<Project> {
+  const res = await fetch(`${API_BASE}/api/projects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to update project");
+  return res.json();
+}
+
+export async function fetchMediaInfo(url: string): Promise<{ title?: string; duration?: number; error?: string }> {
+  const params = new URLSearchParams({ url });
+  const res = await fetch(`${API_BASE}/api/media/fetch-info?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch media info");
   return res.json();
 }
 

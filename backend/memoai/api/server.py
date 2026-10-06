@@ -84,6 +84,7 @@ _ja_pack = JapaneseLanguagePack()
 
 class CreateProjectRequest(BaseModel):
     url_or_path: str
+    title: Optional[str] = None
     source_lang: str = "ja"
     target_lang: str = "vi"
     asr_provider: Optional[str] = "gemini"
@@ -95,6 +96,10 @@ class CreateProjectRequest(BaseModel):
     openai_key: Optional[str] = None
     openai_model: Optional[str] = None
     mode: str = "learning"
+
+
+class UpdateProjectRequest(BaseModel):
+    title: Optional[str] = None
 
 
 class AddVocabRequest(BaseModel):
@@ -186,9 +191,13 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
 
             # 4. Save Media Path & Status
             media_path = out_files.get("media")
+            detected_title = out_files.get("title")
             p = session.get(Project, project_id)
-            if p and media_path:
-                p.media_path = str(media_path)
+            if p:
+                if media_path:
+                    p.media_path = str(media_path)
+                if detected_title and (not req.title or not req.title.strip() or p.title == req.url_or_path.split("/")[-1]):
+                    p.title = detected_title
                 p.status = "completed"
                 p.progress = 1.0
                 p.current_step = "Hoàn thành!"
@@ -385,9 +394,13 @@ def list_projects(session: Session = Depends(get_session)):
 
 @app.post("/api/projects")
 def create_project(req: CreateProjectRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
-    title = Path(req.url_or_path).stem if not req.url_or_path.startswith("http") else req.url_or_path.split("/")[-1]
+    init_title = (
+        req.title.strip()
+        if req.title and req.title.strip()
+        else (Path(req.url_or_path).stem if not req.url_or_path.startswith("http") else req.url_or_path.split("/")[-1])
+    )
     project = Project(
-        title=title or "Untitled Video",
+        title=init_title or "Untitled Video",
         source_type="url" if req.url_or_path.startswith("http") else "file",
         source_uri=req.url_or_path,
         source_lang=req.source_lang,
@@ -452,6 +465,37 @@ def delete_project(project_id: int, session: Session = Depends(get_session)):
     session.delete(project)
     session.commit()
     return {"ok": True}
+
+
+@app.patch("/api/projects/{project_id}")
+def update_project(project_id: int, req: UpdateProjectRequest, session: Session = Depends(get_session)):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if req.title is not None and req.title.strip():
+        project.title = req.title.strip()
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+    return project
+
+
+@app.get("/api/media/fetch-info")
+def fetch_media_info_api(url: str = Query(...)):
+    from memoai.media import is_url
+    if not is_url(url):
+        return {"title": Path(url).stem}
+    import yt_dlp
+    try:
+        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return {
+                "title": info.get("title") or url.split("/")[-1],
+                "duration": info.get("duration") or 0.0,
+            }
+    except Exception as e:
+        return {"title": url.split("/")[-1], "error": str(e)}
 
 
 @app.get("/api/media/{project_id}")

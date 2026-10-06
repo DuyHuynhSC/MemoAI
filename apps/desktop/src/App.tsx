@@ -11,9 +11,12 @@ import {
   Settings,
   Sun,
   Moon,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import type { Project, Segment, WordDefinition, AppTheme } from "./types";
-import { fetchProjects, fetchProject, deleteProject, lookupWord } from "./api/client";
+import { fetchProjects, fetchProject, deleteProject, updateProject, lookupWord } from "./api/client";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { TranscriptList } from "./components/TranscriptList";
 import { WordPopup } from "./components/WordPopup";
@@ -27,6 +30,8 @@ export const App: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [currentTime, setCurrentTime] = useState<number>(0);
+  const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string>("");
 
   // Theme state
   const [theme, setTheme] = useState<AppTheme>(() => {
@@ -139,6 +144,34 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleStartEdit = (project: Project, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingProjectId(project.id);
+    setEditingTitle(project.title);
+  };
+
+  const handleSaveEdit = async (projectId: number, e?: React.FormEvent | React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!editingTitle.trim()) return;
+    try {
+      const updated = await updateProject(projectId, { title: editingTitle.trim() });
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, title: updated.title } : p))
+      );
+      if (selectedProject?.id === projectId) {
+        setSelectedProject((prev) => (prev ? { ...prev, title: updated.title } : null));
+      }
+      setEditingProjectId(null);
+    } catch (err) {
+      console.error("Failed to update project title", err);
+    }
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingProjectId(null);
+  };
+
   const toggleTheme = () => {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   };
@@ -224,9 +257,48 @@ export const App: React.FC = () => {
             {/* Left: Video Player */}
             <div className="flex-1 flex flex-col space-y-3 h-[calc(100vh-130px)] min-h-[580px]">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate max-w-xl">
-                  {selectedProject.title}
-                </h2>
+                {editingProjectId === selectedProject.id ? (
+                  <div className="flex items-center space-x-2 flex-1 max-w-xl">
+                    <input
+                      type="text"
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveEdit(selectedProject.id);
+                        if (e.key === "Escape") setEditingProjectId(null);
+                      }}
+                      autoFocus
+                      className="flex-1 bg-white dark:bg-slate-800 border border-indigo-500 rounded-lg px-3 py-1 text-sm font-bold text-slate-900 dark:text-white focus:outline-none"
+                    />
+                    <button
+                      onClick={(e) => handleSaveEdit(selectedProject.id, e)}
+                      title="Lưu tiêu đề"
+                      className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition shadow-sm"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      title="Hủy"
+                      className="p-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2.5 max-w-xl group/edit">
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">
+                      {selectedProject.title}
+                    </h2>
+                    <button
+                      onClick={(e) => handleStartEdit(selectedProject, e)}
+                      title="Đổi tên video"
+                      className="opacity-60 hover:opacity-100 p-1 rounded-md text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
                 <span className="text-xs px-2.5 py-1 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 rounded-full font-medium border border-indigo-500/20">
                   {selectedProject.source_lang.toUpperCase()} ➔ {selectedProject.target_lang.toUpperCase()}
                 </span>
@@ -323,18 +395,60 @@ export const App: React.FC = () => {
                           {p.source_lang.toUpperCase()} ➔ {p.target_lang.toUpperCase()}
                         </span>
 
-                        <button
-                          onClick={(e) => handleDeleteProject(p.id, e)}
-                          title="Xóa dự án"
-                          className="text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 transition p-1"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={(e) => handleStartEdit(p, e)}
+                            title="Đổi tên video"
+                            className="text-slate-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={(e) => handleDeleteProject(p.id, e)}
+                            title="Xóa dự án"
+                            className="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
 
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white mt-3 line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition">
-                        {p.title}
-                      </h3>
+                      {editingProjectId === p.id ? (
+                        <div
+                          className="mt-3 flex items-center space-x-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleSaveEdit(p.id);
+                              if (e.key === "Escape") setEditingProjectId(null);
+                            }}
+                            autoFocus
+                            className="flex-1 bg-slate-50 dark:bg-slate-800 border border-indigo-500 rounded-lg px-2.5 py-1 text-sm font-bold text-slate-900 dark:text-white focus:outline-none"
+                          />
+                          <button
+                            onClick={(e) => handleSaveEdit(p.id, e)}
+                            title="Lưu"
+                            className="p-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition shadow-sm"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={handleCancelEdit}
+                            title="Hủy"
+                            className="p-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <h3 className="text-base font-bold text-slate-900 dark:text-white mt-3 line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition">
+                          {p.title}
+                        </h3>
+                      )}
                       <p className="text-xs text-slate-500 truncate mt-1">{p.source_uri}</p>
                     </div>
 

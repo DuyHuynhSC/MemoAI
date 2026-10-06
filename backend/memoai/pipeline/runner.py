@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 from memoai.config import settings
 from memoai.media import is_url, download_media, extract_audio
 from memoai.providers.asr.base import ASRProvider, Segment
@@ -36,7 +36,7 @@ class PipelineRunner:
         input_path_or_url: str,
         output_dir: Path | None = None,
         translation_mode: str = "learning"
-    ) -> dict[str, Path]:
+    ) -> dict[str, Any]:
         self.progress_cb("Khởi tạo và tải media...", 0.05)
 
         # 1. Resolve Media
@@ -44,11 +44,13 @@ class PipelineRunner:
             work_dir = output_dir or (settings.get_data_dir() / "downloads")
             media_path, info = download_media(input_path_or_url, work_dir)
             base_name = media_path.stem
+            media_title = info.get("title") or base_name
         else:
             media_path = Path(input_path_or_url)
             if not media_path.exists():
                 raise FileNotFoundError(f"Media file not found: {media_path}")
             base_name = media_path.stem
+            media_title = base_name
             work_dir = output_dir or media_path.parent
 
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -99,6 +101,7 @@ class PipelineRunner:
 
         return {
             "media": media_path,
+            "title": media_title,
             "src_srt": src_srt,
             "tgt_srt": tgt_srt,
             "dual_srt": dual_srt,
