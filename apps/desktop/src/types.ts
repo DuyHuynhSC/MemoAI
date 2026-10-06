@@ -75,3 +75,10 @@ export interface AppSettings {
   default_mt_profile_id?: number;
   default_translation_mode: string;
 }
+
+export type AppTheme = "light" | "dark";
+
+export interface SubtitleSettings {
+  jaFontSize: number;
+  viFontSize: number;
+}

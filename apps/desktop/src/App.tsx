@@ -9,8 +9,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Settings,
+  Sun,
+  Moon,
 } from "lucide-react";
-import type { Project, Segment, WordDefinition } from "./types";
+import type { Project, Segment, WordDefinition, AppTheme } from "./types";
 import { fetchProjects, fetchProject, deleteProject, lookupWord } from "./api/client";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { TranscriptList } from "./components/TranscriptList";
@@ -25,6 +27,41 @@ export const App: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [currentTime, setCurrentTime] = useState<number>(0);
+
+  // Theme state
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    const saved = localStorage.getItem("memoai_theme");
+    return saved === "light" ? "light" : "dark";
+  });
+
+  // Subtitle font size settings
+  const [jaFontSize, setJaFontSize] = useState<number>(() => {
+    const saved = localStorage.getItem("memoai_ja_font_size");
+    return saved ? parseInt(saved) : 26;
+  });
+  const [viFontSize, setViFontSize] = useState<number>(() => {
+    const saved = localStorage.getItem("memoai_vi_font_size");
+    return saved ? parseInt(saved) : 20;
+  });
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+      document.documentElement.classList.remove("light");
+    } else {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.classList.add("light");
+    }
+    localStorage.setItem("memoai_theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("memoai_ja_font_size", jaFontSize.toString());
+  }, [jaFontSize]);
+
+  useEffect(() => {
+    localStorage.setItem("memoai_vi_font_size", viFontSize.toString());
+  }, [viFontSize]);
 
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -102,15 +139,19 @@ export const App: React.FC = () => {
     }
   };
 
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Top Navbar */}
-      <header className="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur px-6 flex items-center justify-between z-30 sticky top-0">
+      <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/80 backdrop-blur px-6 flex items-center justify-between z-30 sticky top-0">
         <div className="flex items-center space-x-4">
           {selectedProjectId ? (
             <button
               onClick={() => setSelectedProjectId(null)}
-              className="flex items-center space-x-2 text-sm text-slate-400 hover:text-white transition px-3 py-1.5 rounded-xl hover:bg-slate-800"
+              className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Thư viện</span>
@@ -121,28 +162,47 @@ export const App: React.FC = () => {
                 <Film className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-white tracking-wide">MemoAI</h1>
-                <p className="text-[11px] text-slate-400">Học ngoại ngữ qua phụ đề song ngữ</p>
+                <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-wide">MemoAI</h1>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">Học ngoại ngữ qua phụ đề song ngữ</p>
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2.5">
+          {/* Light / Dark Mode Toggle */}
+          <button
+            onClick={toggleTheme}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            title={theme === "dark" ? "Chuyển sang Giao diện sáng" : "Chuyển sang Giao diện tối"}
+          >
+            {theme === "dark" ? (
+              <>
+                <Sun className="w-4 h-4 text-amber-400" />
+                <span className="hidden sm:inline">Giao diện sáng</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-4 h-4 text-indigo-600" />
+                <span className="hidden sm:inline">Giao diện tối</span>
+              </>
+            )}
+          </button>
+
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center space-x-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold border border-slate-700 transition"
-            title="Cài đặt kết nối AI"
+            className="flex items-center space-x-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            title="Cài đặt kết nối AI & Giao diện"
           >
-            <Settings className="w-4 h-4 text-slate-400" />
-            <span>Cài đặt AI</span>
+            <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+            <span className="hidden sm:inline">Cài đặt AI</span>
           </button>
 
           <button
             onClick={() => setIsVocabOpen(true)}
-            className="flex items-center space-x-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold border border-slate-700 transition"
+            className="flex items-center space-x-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
           >
-            <BookOpen className="w-4 h-4 text-indigo-400" />
+            <BookOpen className="w-4 h-4 text-indigo-500" />
             <span>Sổ từ vựng & Anki</span>
           </button>
 
@@ -157,17 +217,17 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col p-6">
+      <main className="flex-1 flex flex-col p-4 md:p-6">
         {selectedProject ? (
-          /* Video Learning Room */
-          <div className="flex-1 flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto w-full">
+          /* Video Learning Room - Expanded & Balanced Layout */
+          <div className="flex-1 flex flex-col lg:flex-row gap-6 max-w-[1720px] mx-auto w-full items-stretch">
             {/* Left: Video Player */}
-            <div className="flex-1 flex flex-col space-y-3">
+            <div className="flex-1 flex flex-col space-y-3 h-[calc(100vh-130px)] min-h-[580px]">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-white truncate max-w-xl">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate max-w-xl">
                   {selectedProject.title}
                 </h2>
-                <span className="text-xs px-2.5 py-1 bg-indigo-500/20 text-indigo-300 rounded-full font-medium">
+                <span className="text-xs px-2.5 py-1 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 rounded-full font-medium border border-indigo-500/20">
                   {selectedProject.source_lang.toUpperCase()} ➔ {selectedProject.target_lang.toUpperCase()}
                 </span>
               </div>
@@ -186,19 +246,23 @@ export const App: React.FC = () => {
                 setShowTranslation={setShowTranslation}
                 showJapanese={showJapanese}
                 setShowJapanese={setShowJapanese}
+                jaFontSize={jaFontSize}
+                setJaFontSize={setJaFontSize}
+                viFontSize={viFontSize}
+                setViFontSize={setViFontSize}
               />
             </div>
 
-            {/* Right: Transcript Sidebar */}
-            <div className="w-full lg:w-96 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col overflow-hidden max-h-[720px] shadow-xl">
-              <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            {/* Right: Transcript Sidebar - Widened & Lengthened */}
+            <div className="w-full lg:w-[480px] xl:w-[540px] 2xl:w-[580px] flex-shrink-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden h-[calc(100vh-130px)] min-h-[580px] shadow-xl">
+              <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Lời thoại & Phụ đề</h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Lời thoại & Phụ đề</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                     Bấm vào câu để nhảy tới · Bấm vào từ để tra nghĩa
                   </p>
                 </div>
-                <span className="text-xs font-mono text-slate-400 bg-slate-800 px-2 py-1 rounded-lg">
+                <span className="text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
                   {segments.length} câu
                 </span>
               </div>
@@ -219,17 +283,17 @@ export const App: React.FC = () => {
           <div className="max-w-6xl mx-auto w-full space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-white">Thư viện bài học</h2>
-                <p className="text-sm text-slate-400 mt-1">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Thư viện bài học</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                   Chọn một video để bắt đầu học hoặc bấm "Thêm video mới" để phân tích
                 </p>
               </div>
             </div>
 
             {projects.length === 0 ? (
-              <div className="py-24 text-center border-2 border-dashed border-slate-800 rounded-3xl p-8">
-                <Film className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-slate-300">Chưa có video nào trong thư viện</h3>
+              <div className="py-24 text-center border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-3xl p-8 bg-white dark:bg-slate-900/50">
+                <Film className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">Chưa có video nào trong thư viện</h3>
                 <p className="text-sm text-slate-500 max-w-md mx-auto mt-1 mb-6">
                   Bạn có thể thêm video bất kỳ từ YouTube Shorts, YouTube thông thường hoặc file trên máy tính của bạn.
                 </p>
@@ -247,41 +311,41 @@ export const App: React.FC = () => {
                   <div
                     key={p.id}
                     onClick={() => p.status === "completed" && setSelectedProjectId(p.id)}
-                    className={`bg-slate-900 border rounded-2xl p-5 flex flex-col justify-between transition relative overflow-hidden group ${
+                    className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 flex flex-col justify-between transition relative overflow-hidden group shadow-sm dark:shadow-none ${
                       p.status === "completed"
-                        ? "border-slate-800 hover:border-indigo-500/50 hover:shadow-xl cursor-pointer"
-                        : "border-slate-800 opacity-90"
+                        ? "border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:shadow-xl cursor-pointer"
+                        : "border-slate-200 dark:border-slate-800 opacity-90"
                     }`}
                   >
                     <div>
                       <div className="flex items-start justify-between">
-                        <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-slate-800 text-indigo-400 border border-slate-700">
+                        <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700">
                           {p.source_lang.toUpperCase()} ➔ {p.target_lang.toUpperCase()}
                         </span>
 
                         <button
                           onClick={(e) => handleDeleteProject(p.id, e)}
                           title="Xóa dự án"
-                          className="text-slate-600 hover:text-red-400 transition p-1"
+                          className="text-slate-400 hover:text-red-500 dark:text-slate-600 dark:hover:text-red-400 transition p-1"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
 
-                      <h3 className="text-base font-bold text-white mt-3 line-clamp-2 group-hover:text-indigo-300 transition">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white mt-3 line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition">
                         {p.title}
                       </h3>
                       <p className="text-xs text-slate-500 truncate mt-1">{p.source_uri}</p>
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-slate-800/80">
+                    <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
                       {p.status === "processing" ? (
                         <div className="space-y-2">
                           <div className="flex justify-between text-xs">
-                            <span className="text-indigo-400 font-medium">{p.current_step}</span>
-                            <span className="text-slate-400">{Math.round(p.progress * 100)}%</span>
+                            <span className="text-indigo-500 dark:text-indigo-400 font-medium">{p.current_step}</span>
+                            <span className="text-slate-500 dark:text-slate-400">{Math.round(p.progress * 100)}%</span>
                           </div>
-                          <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                          <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                             <div
                               className="bg-indigo-500 h-full rounded-full transition-all duration-300"
                               style={{ width: `${p.progress * 100}%` }}
@@ -289,18 +353,18 @@ export const App: React.FC = () => {
                           </div>
                         </div>
                       ) : p.status === "completed" ? (
-                        <div className="flex items-center justify-between text-xs text-slate-400">
-                          <span className="flex items-center space-x-1.5 text-emerald-400">
+                        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                          <span className="flex items-center space-x-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
                             <CheckCircle2 className="w-4 h-4" />
                             <span>Đã sẵn sàng</span>
                           </span>
-                          <span className="flex items-center space-x-1 group-hover:text-white transition font-medium">
+                          <span className="flex items-center space-x-1 group-hover:text-indigo-600 dark:group-hover:text-white transition font-medium">
                             <span>Vào học</span>
                             <Play className="w-3 h-3 fill-current ml-1" />
                           </span>
                         </div>
                       ) : (
-                        <div className="flex items-center space-x-1.5 text-xs text-red-400">
+                        <div className="flex items-center space-x-1.5 text-xs text-red-600 dark:text-red-400">
                           <AlertCircle className="w-4 h-4" />
                           <span className="truncate">{p.error_msg || "Lỗi xử lý"}</span>
                         </div>
@@ -326,7 +390,16 @@ export const App: React.FC = () => {
 
       <VocabModal isOpen={isVocabOpen} onClose={() => setIsVocabOpen(false)} />
 
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        theme={theme}
+        setTheme={setTheme}
+        jaFontSize={jaFontSize}
+        setJaFontSize={setJaFontSize}
+        viFontSize={viFontSize}
+        setViFontSize={setViFontSize}
+      />
 
       <WordPopup
         definition={wordDef}

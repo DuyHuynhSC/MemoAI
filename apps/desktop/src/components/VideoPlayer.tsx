@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { Play, Pause, RotateCcw, Repeat, Headphones } from "lucide-react";
+import { Play, Pause, RotateCcw, Repeat, Headphones, Sliders, Type } from "lucide-react";
 import type { Project, Segment } from "../types";
 import { getMediaUrl } from "../api/client";
 
@@ -17,6 +17,10 @@ interface VideoPlayerProps {
   setShowTranslation: (v: boolean) => void;
   showJapanese: boolean;
   setShowJapanese: (v: boolean) => void;
+  jaFontSize: number;
+  setJaFontSize: (v: number) => void;
+  viFontSize: number;
+  setViFontSize: (v: number) => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -33,6 +37,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   setShowTranslation,
   showJapanese,
   setShowJapanese,
+  jaFontSize,
+  setJaFontSize,
+  viFontSize,
+  setViFontSize,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -40,6 +48,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isLoopingSegment, setIsLoopingSegment] = useState(false);
   const [isShadowing, setIsShadowing] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [isFontPopoverOpen, setIsFontPopoverOpen] = useState(false);
   const lastActiveIdxRef = useRef<number>(-1);
 
   const activeSegment = segments.find(
@@ -99,7 +108,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-black rounded-2xl overflow-hidden border border-slate-800 shadow-2xl relative">
+    <div className="flex-1 flex flex-col h-full bg-black rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-800 shadow-2xl relative">
       <div className="relative flex-1 bg-black flex items-center justify-center min-h-[360px]">
         <video
           ref={videoRef}
@@ -112,15 +121,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
-          className="w-full h-full max-h-[580px] object-contain cursor-pointer"
+          className="w-full h-full max-h-[calc(100vh-230px)] object-contain cursor-pointer"
           onClick={togglePlay}
         />
 
         {activeSegment && (
           <div className="absolute bottom-6 inset-x-4 flex justify-center pointer-events-none">
-            <div className="bg-black/75 backdrop-blur-md px-6 py-3 rounded-2xl max-w-2xl text-center shadow-2xl border border-white/10 pointer-events-auto transition duration-150">
+            <div className="bg-black/80 backdrop-blur-md px-6 py-3.5 rounded-2xl max-w-3xl text-center shadow-2xl border border-white/10 pointer-events-auto transition duration-150">
               {showJapanese && (
-                <div className="text-xl md:text-2xl font-semibold text-white tracking-wide flex flex-wrap justify-center items-end gap-x-1 gap-y-1">
+                <div
+                  style={{ fontSize: `${jaFontSize || 26}px`, lineHeight: 1.35 }}
+                  className="font-semibold text-white tracking-wide flex flex-wrap justify-center items-end gap-x-1.5 gap-y-1.5"
+                >
                   {activeSegment.tokens && activeSegment.tokens.length > 0 ? (
                     activeSegment.tokens.map((token, idx) => (
                       <span
@@ -148,13 +160,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               )}
 
               {showRomaji && activeSegment.romanized && (
-                <p className="text-xs text-indigo-300 font-mono mt-1 tracking-wider">
+                <p className="text-xs md:text-sm text-indigo-300 font-mono mt-1 tracking-wider">
                   {activeSegment.romanized}
                 </p>
               )}
 
               {showTranslation && activeSegment.translation && (
-                <p className="text-sm md:text-base text-emerald-300 font-medium mt-1.5 drop-shadow">
+                <p
+                  style={{ fontSize: `${viFontSize || 20}px`, lineHeight: 1.35 }}
+                  className="font-medium mt-2 drop-shadow text-emerald-400 dark:text-emerald-300"
+                >
                   {activeSegment.translation}
                 </p>
               )}
@@ -163,8 +178,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
       </div>
 
-      <div className="bg-slate-900/95 border-t border-slate-800 p-4 space-y-3">
-        <div className="flex items-center space-x-3 text-xs font-mono text-slate-400">
+      <div className="bg-slate-100 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 p-4 space-y-3">
+        <div className="flex items-center space-x-3 text-xs font-mono text-slate-500 dark:text-slate-400">
           <span>{formatTime(currentTime)}</span>
           <input
             type="range"
@@ -173,12 +188,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             step={0.1}
             value={currentTime}
             onChange={handleSeek}
-            className="flex-1 accent-indigo-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
+            className="flex-1 accent-indigo-600 dark:accent-indigo-500 cursor-pointer h-1.5 bg-slate-300 dark:bg-slate-700 rounded-lg"
           />
           <span>{formatTime(duration)}</span>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
             <button
               onClick={togglePlay}
@@ -190,7 +205,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <button
               onClick={replayCurrentSegment}
               title="Phát lại câu hiện tại"
-              className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition"
+              className="p-2.5 bg-white dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-xl border border-slate-200 dark:border-transparent transition"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -200,8 +215,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               title="Lặp lại câu này liên tục"
               className={`p-2.5 rounded-xl border transition flex items-center space-x-1.5 text-xs font-medium ${
                 isLoopingSegment
-                  ? "bg-indigo-500/20 border-indigo-500 text-indigo-300"
-                  : "bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white"
+                  ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-500 text-indigo-700 dark:text-indigo-300"
+                  : "bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Repeat className="w-4 h-4" />
@@ -213,8 +228,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               title="Chế độ Shadowing: tự dừng sau mỗi câu để bạn đọc theo"
               className={`p-2.5 rounded-xl border transition flex items-center space-x-1.5 text-xs font-medium ${
                 isShadowing
-                  ? "bg-emerald-500/20 border-emerald-500 text-emerald-300"
-                  : "bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white"
+                  ? "bg-emerald-50 dark:bg-emerald-500/20 border-emerald-500 text-emerald-700 dark:text-emerald-300"
+                  : "bg-white dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Headphones className="w-4 h-4" />
@@ -222,15 +237,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </button>
           </div>
 
-          <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+          <div className="flex items-center space-x-1 bg-slate-200 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
             {[0.75, 1.0, 1.25].map((speed) => (
               <button
                 key={speed}
                 onClick={() => changeSpeed(speed)}
                 className={`px-2.5 py-1 rounded-lg transition ${
                   playbackRate === speed
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-white"
+                    ? "bg-indigo-600 text-white shadow"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
                 {speed}x
@@ -243,8 +258,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               onClick={() => setShowJapanese(!showJapanese)}
               className={`px-3 py-1.5 rounded-xl border transition font-medium ${
                 showJapanese
-                  ? "bg-indigo-500/20 border-indigo-500/80 text-indigo-300"
-                  : "bg-slate-800 border-slate-700 text-slate-500"
+                  ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-400 dark:border-indigo-500/80 text-indigo-700 dark:text-indigo-300"
+                  : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400"
               }`}
             >
               Tiếng Nhật
@@ -254,8 +269,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               onClick={() => setShowFurigana(!showFurigana)}
               className={`px-3 py-1.5 rounded-xl border transition font-medium ${
                 showFurigana
-                  ? "bg-indigo-500/20 border-indigo-500/80 text-indigo-300"
-                  : "bg-slate-800 border-slate-700 text-slate-500"
+                  ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-400 dark:border-indigo-500/80 text-indigo-700 dark:text-indigo-300"
+                  : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400"
               }`}
             >
               Furigana
@@ -265,8 +280,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               onClick={() => setShowRomaji(!showRomaji)}
               className={`px-3 py-1.5 rounded-xl border transition font-medium ${
                 showRomaji
-                  ? "bg-indigo-500/20 border-indigo-500/80 text-indigo-300"
-                  : "bg-slate-800 border-slate-700 text-slate-500"
+                  ? "bg-indigo-50 dark:bg-indigo-500/20 border-indigo-400 dark:border-indigo-500/80 text-indigo-700 dark:text-indigo-300"
+                  : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400"
               }`}
             >
               Romaji
@@ -276,12 +291,132 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               onClick={() => setShowTranslation(!showTranslation)}
               className={`px-3 py-1.5 rounded-xl border transition font-medium ${
                 showTranslation
-                  ? "bg-emerald-500/20 border-emerald-500/80 text-emerald-300"
-                  : "bg-slate-800 border-slate-700 text-slate-500"
+                  ? "bg-emerald-50 dark:bg-emerald-500/20 border-emerald-400 dark:border-emerald-500/80 text-emerald-700 dark:text-emerald-300"
+                  : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-400"
               }`}
             >
               Tiếng Việt
             </button>
+
+            {/* Subtitle Font Size Popover Button */}
+            <div className="relative">
+              <button
+                onClick={() => setIsFontPopoverOpen(!isFontPopoverOpen)}
+                title="Cài đặt cỡ chữ phụ đề"
+                className={`px-3 py-1.5 rounded-xl border transition font-medium flex items-center space-x-1.5 ${
+                  isFontPopoverOpen
+                    ? "bg-indigo-600 text-white border-indigo-600 shadow"
+                    : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <Type className="w-3.5 h-3.5" />
+                <span>Cỡ chữ</span>
+              </button>
+
+              {isFontPopoverOpen && (
+                <div className="absolute bottom-full right-0 mb-3 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-2xl z-30 space-y-3.5 text-xs text-slate-800 dark:text-slate-200">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 dark:border-slate-800">
+                    <span className="font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Cỡ chữ phụ đề</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        setJaFontSize(26);
+                        setViFontSize(20);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-indigo-500"
+                    >
+                      Mặc định
+                    </button>
+                  </div>
+
+                  {/* Japanese Font Size */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">🇯🇵 Tiếng Nhật</span>
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{jaFontSize}px</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setJaFontSize(Math.max(16, jaFontSize - 2))}
+                        className="w-7 h-7 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-bold border border-slate-200 dark:border-slate-700"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="range"
+                        min={18}
+                        max={42}
+                        step={2}
+                        value={jaFontSize}
+                        onChange={(e) => setJaFontSize(parseInt(e.target.value))}
+                        className="flex-1 accent-indigo-600 dark:accent-indigo-500 h-1.5 bg-slate-200 dark:bg-slate-700 rounded"
+                      />
+                      <button
+                        onClick={() => setJaFontSize(Math.min(42, jaFontSize + 2))}
+                        className="w-7 h-7 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-bold border border-slate-200 dark:border-slate-700"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Vietnamese Font Size */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">🇻🇳 Tiếng Việt</span>
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{viFontSize}px</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setViFontSize(Math.max(14, viFontSize - 2))}
+                        className="w-7 h-7 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-bold border border-slate-200 dark:border-slate-700"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="range"
+                        min={14}
+                        max={36}
+                        step={2}
+                        value={viFontSize}
+                        onChange={(e) => setViFontSize(parseInt(e.target.value))}
+                        className="flex-1 accent-emerald-600 dark:accent-emerald-500 h-1.5 bg-slate-200 dark:bg-slate-700 rounded"
+                      />
+                      <button
+                        onClick={() => setViFontSize(Math.min(36, viFontSize + 2))}
+                        className="w-7 h-7 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-bold border border-slate-200 dark:border-slate-700"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Quick presets */}
+                  <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-200 dark:border-slate-800 text-[10px]">
+                    <button
+                      onClick={() => { setJaFontSize(20); setViFontSize(16); }}
+                      className="py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-medium border border-slate-200 dark:border-slate-700"
+                    >
+                      Nhỏ
+                    </button>
+                    <button
+                      onClick={() => { setJaFontSize(26); setViFontSize(20); }}
+                      className="py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-medium border border-slate-200 dark:border-slate-700"
+                    >
+                      Vừa
+                    </button>
+                    <button
+                      onClick={() => { setJaFontSize(34); setViFontSize(26); }}
+                      className="py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg font-medium border border-slate-200 dark:border-slate-700"
+                    >
+                      Lớn
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
