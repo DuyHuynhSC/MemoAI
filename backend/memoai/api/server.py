@@ -7,11 +7,19 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query, Req
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+
 from sqlmodel import Session, select
 
 from memoai.db import init_db, get_session, engine
 from memoai.models import Project, SegmentRecord, Vocab, AIProfile, AppSettings
 from memoai.config import settings
+from memoai.network import (
+    apply_network_settings,
+    test_network_connectivity,
+    get_ssl_verify,
+    get_proxy_url,
+    get_httpx_client,
+)
 from memoai.providers.asr.gemini_asr import GeminiASR
 from memoai.providers.asr.openai_asr import OpenAICompatASR
 from memoai.providers.mt.gemini_mt import GeminiTranslator
@@ -62,14 +70,23 @@ def seed_default_profiles():
                     default_asr_profile_id=g_profile.id,
                     default_mt_profile_id=g_profile.id,
                     default_translation_mode="learning",
+                    proxy_enabled=settings.proxy_enabled,
+                    http_proxy=settings.http_proxy,
+                    https_proxy=settings.https_proxy,
+                    no_proxy=settings.no_proxy,
+                    ca_cert_path=settings.ca_cert_path or settings.ssl_cert_file or settings.requests_ca_bundle,
+                    insecure_skip_verify=settings.insecure_skip_verify,
                 )
                 session.add(app_set)
                 session.commit()
 
 
 seed_default_profiles()
+# Apply proxy and custom CA settings globally at backend startup
+apply_network_settings()
 
 app = FastAPI(title="MemoAI Desktop API", version="0.1.0")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -124,6 +141,28 @@ class UpdateSettingsRequest(BaseModel):
     default_asr_profile_id: Optional[int] = None
     default_mt_profile_id: Optional[int] = None
     default_translation_mode: Optional[str] = "learning"
+    proxy_enabled: Optional[bool] = None
+    http_proxy: Optional[str] = None
+    https_proxy: Optional[str] = None
+    no_proxy: Optional[str] = None
+    ca_cert_path: Optional[str] = None
+    insecure_skip_verify: Optional[bool] = None
+
+
+class TestNetworkRequest(BaseModel):
+    proxy_enabled: bool = False
+    http_proxy: Optional[str] = None
+    https_proxy: Optional[str] = None
+    no_proxy: Optional[str] = "localhost,127.0.0.1"
+    ca_cert_path: Optional[str] = None
+    insecure_skip_verify: bool = False
+
+
+class SaveCaCertRequest(BaseModel):
+    filename: str
+    content: str
+
+
 
 
 def run_pipeline_task(project_id: int, req: CreateProjectRequest):
@@ -291,10 +330,63 @@ def update_settings(req: UpdateSettingsRequest, session: Session = Depends(get_s
         app_set.default_mt_profile_id = req.default_mt_profile_id
     if req.default_translation_mode:
         app_set.default_translation_mode = req.default_translation_mode
+    if req.proxy_enabled is not None:
+        app_set.proxy_enabled = req.proxy_enabled
+    if req.http_proxy is not None:
+        app_set.http_proxy = req.http_proxy.strip() if req.http_proxy.strip() else None
+    if req.https_proxy is not None:
+        app_set.https_proxy = req.https_proxy.strip() if req.https_proxy.strip() else None
+    if req.no_proxy is not None:
+        app_set.no_proxy = req.no_proxy.strip() or "localhost,127.0.0.1"
+    if req.ca_cert_path is not None:
+        app_set.ca_cert_path = req.ca_cert_path.strip() if req.ca_cert_path.strip() else None
+    if req.insecure_skip_verify is not None:
+        app_set.insecure_skip_verify = req.insecure_skip_verify
+
     session.add(app_set)
     session.commit()
     session.refresh(app_set)
+
+    # Immediately apply to environment
+    apply_network_settings(app_set)
+
     return app_set
+
+
+@app.post("/api/settings/test-network")
+def test_network_endpoint(req: TestNetworkRequest):
+    return test_network_connectivity(
+        proxy_enabled=req.proxy_enabled,
+        http_proxy=req.http_proxy,
+        https_proxy=req.https_proxy,
+        ca_cert_path=req.ca_cert_path,
+        insecure_skip_verify=req.insecure_skip_verify,
+        no_proxy=req.no_proxy,
+    )
+
+
+@app.post("/api/settings/upload-ca")
+def upload_ca_cert(req: SaveCaCertRequest):
+    ext = Path(req.filename or "").suffix.lower()
+    if ext not in [".ca", ".pem", ".crt", ".cer", ".txt"]:
+        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ tệp chứng chỉ: .ca, .pem, .crt, .cer")
+
+    if not req.content or not req.content.strip():
+        raise HTTPException(status_code=400, detail="Nội dung chứng chỉ rỗng")
+
+    certs_dir = settings.get_certs_dir()
+    safe_name = Path(req.filename or "custom_root.ca").name
+    dest_path = certs_dir / safe_name
+
+    with open(dest_path, "w", encoding="utf-8") as f:
+        f.write(req.content.strip())
+
+    return {
+        "file_path": str(dest_path.resolve()),
+        "filename": safe_name,
+        "size": len(req.content),
+    }
+
 
 
 @app.get("/api/settings/profiles")
@@ -350,7 +442,17 @@ def test_profile(req: TestProfileRequest):
             g_key = req.api_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
             if not g_key:
                 return {"success": False, "message": "Chưa có Gemini API Key."}
-            client = genai.Client(api_key=g_key)
+
+            verify = get_ssl_verify()
+            proxy = get_proxy_url()
+            client_args = {}
+            if verify is not True:
+                client_args["verify"] = verify
+            if proxy:
+                client_args["proxy"] = proxy
+            http_options = types.HttpOptions(client_args=client_args) if client_args else None
+            client = genai.Client(api_key=g_key, http_options=http_options)
+
             res = client.models.generate_content(
                 model=req.model,
                 contents="Ping. Say OK",
@@ -368,7 +470,11 @@ def test_profile(req: TestProfileRequest):
         else:
             from openai import OpenAI
             base_url = req.base_url or "http://localhost:11434/v1"
-            client = OpenAI(base_url=base_url, api_key=req.api_key or "dummy_key")
+            client = OpenAI(
+                base_url=base_url,
+                api_key=req.api_key or "dummy_key",
+                http_client=get_httpx_client(),
+            )
             res = client.chat.completions.create(
                 model=req.model,
                 messages=[{"role": "user", "content": "Ping. Say OK"}],
@@ -482,12 +588,12 @@ def update_project(project_id: int, req: UpdateProjectRequest, session: Session 
 
 @app.get("/api/media/fetch-info")
 def fetch_media_info_api(url: str = Query(...)):
-    from memoai.media import is_url
+    from memoai.media import is_url, get_yt_dlp_options
     if not is_url(url):
         return {"title": Path(url).stem}
     import yt_dlp
     try:
-        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+        ydl_opts = get_yt_dlp_options({"skip_download": True})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             return {
@@ -496,6 +602,7 @@ def fetch_media_info_api(url: str = Query(...)):
             }
     except Exception as e:
         return {"title": url.split("/")[-1], "error": str(e)}
+
 
 
 @app.get("/api/media/{project_id}")

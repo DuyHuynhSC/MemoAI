@@ -154,3 +154,37 @@ export async function testProfileConnection(payload: {
   if (!res.ok) throw new Error("Failed to test connection");
   return res.json();
 }
+
+export async function testNetworkConnection(payload: {
+  proxy_enabled: boolean;
+  http_proxy?: string;
+  https_proxy?: string;
+  no_proxy?: string;
+  ca_cert_path?: string;
+  insecure_skip_verify?: boolean;
+}): Promise<import("../types").NetworkTestResult> {
+  const res = await fetch(`${API_BASE}/api/settings/test-network`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to test network connection");
+  return res.json();
+}
+
+export async function uploadCaCertificate(payload: {
+  filename: string;
+  content: string;
+}): Promise<{ file_path: string; filename: string; size: number }> {
+  const res = await fetch(`${API_BASE}/api/settings/upload-ca`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "Failed to save certificate");
+  }
+  return res.json();
+}
+

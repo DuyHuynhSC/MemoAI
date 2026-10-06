@@ -13,11 +13,14 @@ class OpenAICompatTranslator(TranslatorProvider):
         api_key: str | None = None,
         model: str = "qwen2.5:latest"
     ):
+        from memoai.network import get_httpx_client
         self.client = OpenAI(
             base_url=base_url,
-            api_key=api_key or "dummy_key"
+            api_key=api_key or "dummy_key",
+            http_client=get_httpx_client(),
         )
         self.model = model
+
 
     def _translate_chunk(
         self,

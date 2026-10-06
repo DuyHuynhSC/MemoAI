@@ -74,7 +74,33 @@ export interface AppSettings {
   default_asr_profile_id?: number;
   default_mt_profile_id?: number;
   default_translation_mode: string;
+  proxy_enabled?: boolean;
+  http_proxy?: string;
+  https_proxy?: string;
+  no_proxy?: string;
+  ca_cert_path?: string;
+  insecure_skip_verify?: boolean;
 }
+
+export interface NetworkTestResult {
+  success: boolean;
+  message: string;
+  youtube?: {
+    success: boolean;
+    latency_ms?: number;
+    status_code?: number;
+    error?: string;
+    message: string;
+  };
+  gemini?: {
+    success: boolean;
+    latency_ms?: number;
+    status_code?: number;
+    error?: string;
+    message: string;
+  };
+}
+
 
 export type AppTheme = "light" | "dark";
 

@@ -14,6 +14,9 @@ import {
   Moon,
   Palette,
   Type,
+  Globe,
+  Shield,
+  Upload,
 } from "lucide-react";
 import {
   fetchSettings,
@@ -21,8 +24,10 @@ import {
   saveProfile,
   deleteProfile,
   testProfileConnection,
+  testNetworkConnection,
+  uploadCaCertificate,
 } from "../api/client";
-import type { AIProfile, AppSettings, AppTheme } from "../types";
+import type { AIProfile, AppSettings, AppTheme, NetworkTestResult } from "../types";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -45,7 +50,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   viFontSize = 20,
   setViFontSize,
 }) => {
-  const [activeTab, setActiveTab] = useState<"defaults" | "profiles" | "appearance">("defaults");
+  const [activeTab, setActiveTab] = useState<"defaults" | "profiles" | "appearance" | "network">("defaults");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,11 +68,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettingsMsg, setSavedSettingsMsg] = useState(false);
 
+  // Network & Proxy tab state
+  const [savingNetwork, setSavingNetwork] = useState(false);
+  const [savedNetworkMsg, setSavedNetworkMsg] = useState(false);
+  const [testingNetwork, setTestingNetwork] = useState(false);
+  const [networkTestResult, setNetworkTestResult] = useState<NetworkTestResult | null>(null);
+  const [uploadingCa, setUploadingCa] = useState(false);
+  const [uploadCaMsg, setUploadCaMsg] = useState<string | null>(null);
+
   const loadData = async () => {
     setLoading(true);
     try {
       const data = await fetchSettings();
       setSettings(data.settings);
+
       setProfiles(data.profiles);
     } catch (e) {
       console.error(e);
@@ -146,7 +160,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleSaveNetwork = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settings) return;
+    setSavingNetwork(true);
+    setSavedNetworkMsg(false);
+    try {
+      await updateSettings(settings);
+      setSavedNetworkMsg(true);
+      setTimeout(() => setSavedNetworkMsg(false), 3000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingNetwork(false);
+    }
+  };
+
+  const handleTestNetwork = async () => {
+    if (!settings) return;
+    setTestingNetwork(true);
+    setNetworkTestResult(null);
+    try {
+      const res = await testNetworkConnection({
+        proxy_enabled: !!settings.proxy_enabled,
+        http_proxy: settings.http_proxy,
+        https_proxy: settings.https_proxy,
+        no_proxy: settings.no_proxy,
+        ca_cert_path: settings.ca_cert_path,
+        insecure_skip_verify: !!settings.insecure_skip_verify,
+      });
+      setNetworkTestResult(res);
+    } catch (err: any) {
+      setNetworkTestResult({
+        success: false,
+        message: err.message || "Lỗi kiểm tra kết nối mạng",
+      });
+    } finally {
+      setTestingNetwork(false);
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !settings) return;
+    setUploadingCa(true);
+    setUploadCaMsg(null);
+    try {
+      const content = await file.text();
+      const res = await uploadCaCertificate({
+        filename: file.name,
+        content,
+      });
+      setSettings({
+        ...settings,
+        ca_cert_path: res.file_path,
+      });
+      setUploadCaMsg(`Đã nạp tệp: ${res.filename} (${(res.size / 1024).toFixed(1)} KB)`);
+      setTimeout(() => setUploadCaMsg(null), 4000);
+    } catch (err: any) {
+      alert("Lỗi khi tải lên file CA: " + (err.message || String(err)));
+    } finally {
+      setUploadingCa(false);
+      e.target.value = "";
+    }
+  };
+
   if (!isOpen) return null;
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -211,7 +291,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             Giao diện & Cỡ chữ phụ đề
           </button>
+          <button
+            onClick={() => {
+              setActiveTab("network");
+              setEditingProfile(null);
+            }}
+            className={`pb-3 text-sm font-semibold transition border-b-2 ${
+              activeTab === "network"
+                ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            Mạng & Proxy (Corporate)
+          </button>
         </div>
+
 
         {loading ? (
           <div className="py-20 text-center text-slate-400 flex flex-col items-center justify-center space-y-3">
@@ -788,7 +882,294 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Tab 4: Network & Proxy (Corporate) */}
+            {activeTab === "network" && settings && (
+              <form onSubmit={handleSaveNetwork} className="py-5 space-y-5 flex-1 overflow-y-auto">
+                {/* Info Card */}
+                <div className="bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 p-4 rounded-xl flex items-start space-x-3 text-xs leading-relaxed">
+                  <Globe className="w-5 h-5 flex-shrink-0 text-blue-500 mt-0.5" />
+                  <div>
+                    <span className="font-semibold block mb-0.5">Hỗ trợ mạng doanh nghiệp (Corporate Proxy & Deep Packet Inspection):</span>
+                    Dành cho người dùng trong mạng nội bộ công ty (như Fujinet, FPT, v.v.) sử dụng Proxy và có thiết bị firewall giải mã SSL. Khi ở nhà hoặc mạng cá nhân, chỉ cần tắt Proxy để kết nối Internet trực tiếp với tốc độ tối đa.
+                  </div>
+                </div>
+
+                {/* Proxy Configuration Box */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-2">
+                        <span>Máy chủ Proxy (HTTP/HTTPS)</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Chuyển tiếp lưu lượng mạng thông qua Proxy của doanh nghiệp.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!settings.proxy_enabled}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            proxy_enabled: e.target.checked,
+                          })
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                      <span className="ml-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        {settings.proxy_enabled ? "Đang bật" : "Đang tắt"}
+                      </span>
+                    </label>
+                  </div>
+
+                  {settings.proxy_enabled && (
+                    <div className="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-800/80">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          Địa chỉ Proxy (HTTP/HTTPS) <span className="text-rose-500">*</span>:
+                        </label>
+                        <input
+                          type="text"
+                          value={settings.http_proxy || ""}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              http_proxy: e.target.value,
+                              https_proxy: e.target.value,
+                            })
+                          }
+                          placeholder="http://proxy2.fujinet.vn:8080 hoặc http://user:pass@host:port"
+                          className="w-full text-xs px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                          Danh sách bỏ qua Proxy (No Proxy):
+                        </label>
+                        <input
+                          type="text"
+                          value={settings.no_proxy || "localhost,127.0.0.1"}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              no_proxy: e.target.value,
+                            })
+                          }
+                          placeholder="localhost,127.0.0.1"
+                          className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white font-mono"
+                        />
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                          Bắt buộc giữ <code>localhost,127.0.0.1</code> để giao tiếp nội bộ giữa giao diện và Backend cục bộ không bị nghẽn.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Custom CA Certificate Box */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
+                        <Shield className="w-4 h-4 text-emerald-500" />
+                        <span>Chứng chỉ Root CA nội bộ (.ca, .pem, .crt)</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Cung cấp Root Certificate của công ty để SDK Gemini và yt-dlp tin cậy kết nối khi firewall quét bảo mật SSL.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Đường dẫn tệp chứng chỉ CA trên máy:
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="text"
+                        value={settings.ca_cert_path || ""}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            ca_cert_path: e.target.value,
+                          })
+                        }
+                        placeholder="Ví dụ: C:\certs\fujinet.ca hoặc D:\keys\company-root.pem"
+                        className="flex-1 text-xs px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white"
+                      />
+                      <label className="cursor-pointer px-3 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-medium rounded-lg transition flex items-center space-x-1.5 flex-shrink-0">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{uploadingCa ? "Đang tải..." : "Chọn tệp..."}</span>
+                        <input
+                          type="file"
+                          accept=".ca,.pem,.crt,.cer,.txt"
+                          onChange={handleFileChange}
+                          disabled={uploadingCa}
+                          className="hidden"
+                        />
+                      </label>
+                      {settings.ca_cert_path && (
+                        <button
+                          type="button"
+                          onClick={() => setSettings({ ...settings, ca_cert_path: "" })}
+                          className="p-2 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                          title="Xóa đường dẫn CA"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    {uploadCaMsg && (
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{uploadCaMsg}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200 dark:border-slate-800/80">
+                    <label className="flex items-center space-x-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!settings.insecure_skip_verify}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            insecure_skip_verify: e.target.checked,
+                          })
+                        }
+                        className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                      />
+                      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                        Bỏ qua xác thực SSL (Insecure Skip Verify - Chỉ dùng thử nghiệm khẩn cấp)
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Test Connection Button & Results */}
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                        Chẩn đoán kết nối mạng & SSL
+                      </h4>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Kiểm tra ngay khả năng tải YouTube và gọi API Gemini qua proxy hiện tại.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleTestNetwork}
+                      disabled={testingNetwork}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50"
+                    >
+                      {testingNetwork ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <span>Đang kiểm tra...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>Kiểm tra kết nối</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {networkTestResult && (
+                    <div
+                      className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
+                        networkTestResult.success
+                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-800 dark:text-emerald-200"
+                          : "bg-rose-500/10 border-rose-500/20 text-rose-800 dark:text-rose-200"
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 font-bold text-sm">
+                        {networkTestResult.success ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                            <span>{networkTestResult.message}</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+                            <span>{networkTestResult.message}</span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Detail breakdown */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-200/40 dark:border-slate-700/40">
+                        {networkTestResult.youtube && (
+                          <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                            <div className="font-semibold flex items-center justify-between">
+                              <span>YouTube:</span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  networkTestResult.youtube.success
+                                    ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300"
+                                    : "bg-rose-500/20 text-rose-600 dark:text-rose-300"
+                                }`}
+                              >
+                                {networkTestResult.youtube.success ? "Thành công" : "Lỗi"}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
+                              {networkTestResult.youtube.message}
+                            </p>
+                          </div>
+                        )}
+
+                        {networkTestResult.gemini && (
+                          <div className="p-2 rounded-lg bg-white/50 dark:bg-slate-800/50">
+                            <div className="font-semibold flex items-center justify-between">
+                              <span>Google Gemini API:</span>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  networkTestResult.gemini.success
+                                    ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300"
+                                    : "bg-rose-500/20 text-rose-600 dark:text-rose-300"
+                                }`}
+                              >
+                                {networkTestResult.gemini.success ? "Thành công" : "Lỗi"}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
+                              {networkTestResult.gemini.message}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Save Button */}
+                <div className="pt-2 flex items-center justify-end space-x-3">
+                  {savedNetworkMsg && (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center space-x-1 font-medium">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Đã lưu cài đặt mạng & proxy thành công!</span>
+                    </span>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={savingNetwork}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition disabled:opacity-50 shadow-md shadow-indigo-600/20"
+                  >
+                    {savingNetwork ? "Đang lưu..." : "Lưu cài đặt mạng"}
+                  </button>
+                </div>
+              </form>
+            )}
           </>
+
         )}
       </div>
     </div>

@@ -11,6 +11,30 @@ def is_url(path_or_url: str) -> bool:
     return path_or_url.startswith("http://") or path_or_url.startswith("https://")
 
 
+def get_yt_dlp_options(extra_opts: dict | None = None) -> dict:
+    """Build yt-dlp options incorporating active Proxy and CA certificate settings."""
+    from memoai.network import get_active_network_settings
+
+    opts: dict = {
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    app_set = get_active_network_settings()
+    if app_set.proxy_enabled and (app_set.https_proxy or app_set.http_proxy):
+        opts["proxy"] = app_set.https_proxy or app_set.http_proxy
+
+    if app_set.insecure_skip_verify:
+        opts["nocheckcertificate"] = True
+    elif app_set.ca_cert_path and Path(app_set.ca_cert_path).is_file():
+        opts["cafile"] = str(Path(app_set.ca_cert_path).resolve())
+
+    if extra_opts:
+        opts.update(extra_opts)
+
+    return opts
+
+
 def download_media(url: str, output_dir: Path) -> tuple[Path, dict]:
     """Download video or audio using yt-dlp.
     Returns path to downloaded file and info dict.
@@ -18,12 +42,10 @@ def download_media(url: str, output_dir: Path) -> tuple[Path, dict]:
     output_dir.mkdir(parents=True, exist_ok=True)
     out_tmpl = str(output_dir / "%(id)s.%(ext)s")
 
-    ydl_opts = {
+    ydl_opts = get_yt_dlp_options({
         "format": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
         "outtmpl": out_tmpl,
-        "quiet": True,
-        "no_warnings": True,
-    }
+    })
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)

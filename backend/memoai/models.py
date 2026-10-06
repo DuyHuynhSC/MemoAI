@@ -82,3 +82,12 @@ class AppSettings(SQLModel, table=True):
     default_asr_profile_id: Optional[int] = None
     default_mt_profile_id: Optional[int] = None
     default_translation_mode: str = Field(default="learning")
+
+    # Corporate Proxy & Custom CA Certificate
+    proxy_enabled: bool = Field(default=False)
+    http_proxy: Optional[str] = Field(default=None)
+    https_proxy: Optional[str] = Field(default=None)
+    no_proxy: str = Field(default="localhost,127.0.0.1")
+    ca_cert_path: Optional[str] = Field(default=None)
+    insecure_skip_verify: bool = Field(default=False)
+

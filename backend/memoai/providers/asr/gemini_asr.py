@@ -34,7 +34,17 @@ class GeminiASR(ASRProvider):
     def __init__(self, api_key: str | None = None, model: str = "gemini-2.5-flash"):
         self.api_key = api_key
         self.model = model
-        self.client = genai.Client(api_key=self.api_key)
+        from memoai.network import get_ssl_verify, get_proxy_url
+        verify = get_ssl_verify()
+        proxy = get_proxy_url()
+        client_args = {}
+        if verify is not True:
+            client_args["verify"] = verify
+        if proxy:
+            client_args["proxy"] = proxy
+        http_options = types.HttpOptions(client_args=client_args) if client_args else None
+        self.client = genai.Client(api_key=self.api_key, http_options=http_options)
+
 
     def _call_generate_with_retry(self, uploaded_file, prompt: str) -> str:
         models_to_try = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
