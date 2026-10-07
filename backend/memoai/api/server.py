@@ -592,16 +592,28 @@ def fetch_media_info_api(url: str = Query(...)):
     if not is_url(url):
         return {"title": Path(url).stem}
     import yt_dlp
-    try:
-        ydl_opts = get_yt_dlp_options({"skip_download": True})
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return {
-                "title": info.get("title") or url.split("/")[-1],
-                "duration": info.get("duration") or 0.0,
-            }
-    except Exception as e:
-        return {"title": url.split("/")[-1], "error": str(e)}
+    import time
+
+    last_err = None
+    for attempt in range(1, 4):
+        try:
+            extra = {"skip_download": True}
+            if attempt == 3 and last_err and ("SSL" in str(last_err) or "CERTIFICATE" in str(last_err)):
+                extra["nocheckcertificate"] = True
+                extra["no_check_certificate"] = True
+            ydl_opts = get_yt_dlp_options(extra)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                return {
+                    "title": info.get("title") or url.split("/")[-1],
+                    "duration": info.get("duration") or 0.0,
+                }
+        except Exception as e:
+            last_err = e
+            time.sleep(1)
+
+    return {"title": url.split("/")[-1], "error": str(last_err)}
+
 
 
 

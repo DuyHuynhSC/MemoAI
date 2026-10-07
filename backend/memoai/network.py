@@ -1,12 +1,132 @@
 import os
+import sys
+import ssl
 import time
+import base64
 from pathlib import Path
 from typing import Optional, Union
+import certifi
 import httpx
 from sqlmodel import Session, select
 
 from memoai.config import settings
 from memoai.models import AppSettings
+
+# Keep original references for clean restore
+_ORIG_CERTIFI_WHERE = certifi.where
+_ORIG_CERTIFI_CONTENTS = getattr(certifi, "contents", None)
+_ORIG_SSL_DEFAULT_HTTPS_CONTEXT = getattr(ssl, "_create_default_https_context", ssl.create_default_context)
+
+
+def get_windows_system_certs_pem() -> str:
+    """Extract ROOT and CA certificates from Windows Certificate Store as PEM."""
+    if sys.platform != "win32" or not hasattr(ssl, "enum_certificates"):
+        return ""
+
+    pem_blocks = []
+    for store in ("ROOT", "CA"):
+        try:
+            for cert_bytes, encoding_type, trust in ssl.enum_certificates(store):
+                if cert_bytes:
+                    b64 = base64.encodebytes(cert_bytes).decode("ascii")
+                    pem_blocks.append(f"-----BEGIN CERTIFICATE-----\n{b64}-----END CERTIFICATE-----\n")
+        except Exception:
+            pass
+    return "".join(pem_blocks)
+
+
+def ensure_combined_ca_bundle(app_set: Optional[AppSettings] = None) -> Path:
+    """Generate or update a unified CA bundle combining:
+    1. Standard Mozilla certifi root CAs
+    2. Windows system store ROOT and CA certificates (e.g. enterprise group policies)
+    3. User-configured custom CA certificate file (.ca, .pem, .crt)
+    Returns path to the combined bundle file.
+    """
+    if app_set is None:
+        app_set = get_active_network_settings()
+
+    certs_dir = settings.get_certs_dir()
+    combined_path = certs_dir / "memoai_combined_ca.pem"
+
+    parts = []
+
+    # 1. Base certifi bundle
+    try:
+        base_certifi_path = Path(_ORIG_CERTIFI_WHERE())
+        if base_certifi_path.is_file():
+            parts.append(base_certifi_path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+
+    # 2. Windows System Certificate Store
+    try:
+        win_certs = get_windows_system_certs_pem()
+        if win_certs:
+            parts.append("\n# Windows System Certificates\n" + win_certs)
+    except Exception:
+        pass
+
+    # 3. User Custom CA Certificate
+    custom_ca_file = None
+    if app_set.ca_cert_path and Path(app_set.ca_cert_path).is_file():
+        custom_ca_file = Path(app_set.ca_cert_path)
+    elif settings.ca_cert_path and Path(settings.ca_cert_path).is_file():
+        custom_ca_file = Path(settings.ca_cert_path)
+    elif settings.ssl_cert_file and Path(settings.ssl_cert_file).is_file():
+        custom_ca_file = Path(settings.ssl_cert_file)
+    elif settings.requests_ca_bundle and Path(settings.requests_ca_bundle).is_file():
+        custom_ca_file = Path(settings.requests_ca_bundle)
+
+    if custom_ca_file:
+        try:
+            custom_content = custom_ca_file.read_text(encoding="utf-8")
+            parts.append(f"\n# Custom CA ({custom_ca_file.name})\n" + custom_content)
+        except Exception:
+            pass
+
+    # Write combined file
+    try:
+        combined_path.write_text("\n".join(parts), encoding="utf-8")
+    except Exception as e:
+        print(f"[MemoAI Network] Warning: could not write combined CA bundle: {e}")
+
+    return combined_path
+
+
+def patch_certifi(bundle_path: Path) -> None:
+    """Monkeypatch certifi.where and certifi.contents so any library (like yt-dlp, httpx, requests)
+    calling certifi automatically uses our unified CA bundle.
+    """
+    if bundle_path.is_file():
+        bundle_str = str(bundle_path.resolve())
+        certifi.where = lambda: bundle_str
+        if hasattr(certifi, "contents"):
+            certifi.contents = lambda: bundle_path.read_text(encoding="utf-8")
+
+
+def patch_yt_dlp_ssl(app_set: AppSettings, bundle_path: Path) -> None:
+    """Hook yt-dlp networking module to guarantee custom CA and insecure modes work reliably."""
+    try:
+        import yt_dlp.networking._helper as yt_helper
+        if not hasattr(yt_helper, "_memoai_orig_make_ssl_context"):
+            yt_helper._memoai_orig_make_ssl_context = yt_helper.make_ssl_context
+
+        orig_fn = yt_helper._memoai_orig_make_ssl_context
+
+        def _memoai_make_ssl_context(verify=True, **kwargs):
+            if app_set.insecure_skip_verify:
+                verify = False
+            ctx = orig_fn(verify=verify, **kwargs)
+            if verify and bundle_path.is_file():
+                try:
+                    ctx.load_verify_locations(cafile=str(bundle_path.resolve()))
+                except Exception:
+                    pass
+            return ctx
+
+        yt_helper.make_ssl_context = _memoai_make_ssl_context
+    except Exception:
+        pass
 
 
 def get_active_network_settings(session: Optional[Session] = None) -> AppSettings:
@@ -69,25 +189,29 @@ def apply_network_settings(app_set: Optional[AppSettings] = None) -> None:
         os.environ["NO_PROXY"] = "localhost,127.0.0.1"
         os.environ["no_proxy"] = "localhost,127.0.0.1"
 
-    # 2. Configure Custom CA Certificate
-    ca_path = None
-    if app_set.ca_cert_path and Path(app_set.ca_cert_path).is_file():
-        ca_path = str(Path(app_set.ca_cert_path).resolve())
-    elif settings.ca_cert_path and Path(settings.ca_cert_path).is_file():
-        ca_path = str(Path(settings.ca_cert_path).resolve())
-    elif settings.ssl_cert_file and Path(settings.ssl_cert_file).is_file():
-        ca_path = str(Path(settings.ssl_cert_file).resolve())
-    elif settings.requests_ca_bundle and Path(settings.requests_ca_bundle).is_file():
-        ca_path = str(Path(settings.requests_ca_bundle).resolve())
+    # 2. Build unified CA bundle & patch libraries
+    bundle_path = ensure_combined_ca_bundle(app_set)
+    bundle_str = str(bundle_path.resolve())
 
-    if ca_path:
-        os.environ["REQUESTS_CA_BUNDLE"] = ca_path
-        os.environ["SSL_CERT_FILE"] = ca_path
-        os.environ["CURL_CA_BUNDLE"] = ca_path
+    # Set standard SSL environment variables for Python, requests, curl, urllib
+    os.environ["SSL_CERT_FILE"] = bundle_str
+    os.environ["REQUESTS_CA_BUNDLE"] = bundle_str
+    os.environ["CURL_CA_BUNDLE"] = bundle_str
+
+    patch_certifi(bundle_path)
+    patch_yt_dlp_ssl(app_set, bundle_path)
+
+    # 3. Handle insecure_skip_verify
+    if app_set.insecure_skip_verify:
+        try:
+            ssl._create_default_https_context = ssl._create_unverified_context
+        except Exception:
+            pass
     else:
-        os.environ.pop("REQUESTS_CA_BUNDLE", None)
-        os.environ.pop("SSL_CERT_FILE", None)
-        os.environ.pop("CURL_CA_BUNDLE", None)
+        try:
+            ssl._create_default_https_context = _ORIG_SSL_DEFAULT_HTTPS_CONTEXT
+        except Exception:
+            pass
 
 
 def get_ssl_verify(app_set: Optional[AppSettings] = None) -> Union[str, bool]:
@@ -98,14 +222,9 @@ def get_ssl_verify(app_set: Optional[AppSettings] = None) -> Union[str, bool]:
     if app_set.insecure_skip_verify:
         return False
 
-    if app_set.ca_cert_path and Path(app_set.ca_cert_path).is_file():
-        return str(Path(app_set.ca_cert_path).resolve())
-
-    if settings.ca_cert_path and Path(settings.ca_cert_path).is_file():
-        return str(Path(settings.ca_cert_path).resolve())
-
-    if settings.ssl_cert_file and Path(settings.ssl_cert_file).is_file():
-        return str(Path(settings.ssl_cert_file).resolve())
+    bundle_path = ensure_combined_ca_bundle(app_set)
+    if bundle_path.is_file():
+        return str(bundle_path.resolve())
 
     return True
 
@@ -147,24 +266,28 @@ def test_network_connectivity(
     no_proxy: Optional[str] = None,
 ) -> dict:
     """Test network and SSL connectivity to YouTube and Google Gemini API."""
-    proxy_url = None
-    if proxy_enabled:
-        proxy_url = https_proxy or http_proxy
-
-    # Resolve verify target
-    if insecure_skip_verify:
-        verify: Union[str, bool] = False
-    elif ca_cert_path and Path(ca_cert_path).is_file():
-        verify = str(Path(ca_cert_path).resolve())
-    elif ca_cert_path:
+    # Check if custom CA path is given and exists
+    if ca_cert_path and not Path(ca_cert_path).is_file():
         return {
             "success": False,
             "message": f"Tệp chứng chỉ CA không tồn tại trên máy: {ca_cert_path}",
             "youtube": {"success": False, "message": "Không tìm thấy file CA"},
             "gemini": {"success": False, "message": "Không tìm thấy file CA"},
         }
-    else:
-        verify = True
+
+    # Temporary AppSettings object for test evaluation
+    test_set = AppSettings(
+        id=999,
+        proxy_enabled=proxy_enabled,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_proxy=no_proxy or "localhost,127.0.0.1",
+        ca_cert_path=ca_cert_path,
+        insecure_skip_verify=insecure_skip_verify,
+    )
+
+    proxy_url = get_proxy_url(test_set)
+    verify = get_ssl_verify(test_set)
 
     results = {}
 

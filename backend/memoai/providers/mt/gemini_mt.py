@@ -56,8 +56,17 @@ class GeminiTranslator(TranslatorProvider):
                 except (errors.APIError, Exception) as e:
                     err_msg = str(e)
                     last_error = e
-                    is_transient = "503" in err_msg or "429" in err_msg or "UNAVAILABLE" in err_msg or "RESOURCE_EXHAUSTED" in err_msg
+                    is_transient = (
+                        "503" in err_msg
+                        or "429" in err_msg
+                        or "UNAVAILABLE" in err_msg
+                        or "RESOURCE_EXHAUSTED" in err_msg
+                        or "timeout" in err_msg.lower()
+                        or "connect" in err_msg.lower()
+                        or "ssl" in err_msg.lower()
+                    )
                     if is_transient:
+
                         wait_sec = attempt * 3
                         time.sleep(wait_sec)
                         continue

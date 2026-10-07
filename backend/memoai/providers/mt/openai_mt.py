@@ -49,29 +49,39 @@ class OpenAICompatTranslator(TranslatorProvider):
             f"{json.dumps(items_payload, ensure_ascii=False, indent=2)}"
         )
 
-        # Try with response_format json_object
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a professional subtitle translator that outputs valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.2
-            )
-            raw_text = response.choices[0].message.content or "{}"
-        except Exception:
-            # Fallback for models that don't support response_format
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a professional subtitle translator that outputs valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.2
-            )
-            raw_text = response.choices[0].message.content or "{}"
+        raw_text = "{}"
+        for attempt in range(1, 4):
+            try:
+                # Try with response_format json_object
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": "You are a professional subtitle translator that outputs valid JSON."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        response_format={"type": "json_object"},
+                        temperature=0.2
+                    )
+                    raw_text = response.choices[0].message.content or "{}"
+                except Exception:
+                    # Fallback for models that don't support response_format
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": "You are a professional subtitle translator that outputs valid JSON."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.2
+                    )
+                    raw_text = response.choices[0].message.content or "{}"
+                break
+            except Exception as e:
+                if attempt == 3:
+                    raise RuntimeError(f"Dịch OpenAI thất bại sau 3 lần thử: {e}") from e
+                import time
+                time.sleep(attempt * 2)
+
 
         # Clean JSON from markdown code fences if present
         raw_text = re.sub(r"^```json\s*", "", raw_text.strip(), flags=re.MULTILINE)

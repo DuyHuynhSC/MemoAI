@@ -34,7 +34,7 @@ def test_apply_network_settings_disabled():
 
 def test_apply_network_settings_enabled(tmp_path):
     cert_file = tmp_path / "test_ca.pem"
-    cert_file.write_text("-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----", encoding="utf-8")
+    cert_file.write_text("-----BEGIN CERTIFICATE-----\nTEST_CERT_CONTENT\n-----END CERTIFICATE-----", encoding="utf-8")
 
     settings = AppSettings(
         id=1,
@@ -49,8 +49,9 @@ def test_apply_network_settings_enabled(tmp_path):
     assert os.environ["HTTP_PROXY"] == "http://company-proxy.com:8080"
     assert os.environ["HTTPS_PROXY"] == "http://company-proxy.com:8080"
     assert os.environ["NO_PROXY"] == "localhost,127.0.0.1,internal.domain"
-    assert os.environ["SSL_CERT_FILE"] == str(cert_file.resolve())
-    assert os.environ["REQUESTS_CA_BUNDLE"] == str(cert_file.resolve())
+    assert "memoai_combined_ca.pem" in os.environ["SSL_CERT_FILE"]
+    bundle_text = Path(os.environ["SSL_CERT_FILE"]).read_text(encoding="utf-8")
+    assert "TEST_CERT_CONTENT" in bundle_text
 
     # Clean up
     apply_network_settings(AppSettings(id=1, proxy_enabled=False, ca_cert_path=None))
@@ -64,13 +65,11 @@ def test_get_ssl_verify_and_proxy_url(tmp_path):
     s_insecure = AppSettings(id=1, insecure_skip_verify=True)
     assert get_ssl_verify(s_insecure) is False
 
-    # Valid CA
+    # Valid CA or default returns combined bundle path
     s_ca = AppSettings(id=1, insecure_skip_verify=False, ca_cert_path=str(cert_file))
-    assert get_ssl_verify(s_ca) == str(cert_file.resolve())
-
-    # Default
-    s_default = AppSettings(id=1, insecure_skip_verify=False, ca_cert_path=None)
-    assert get_ssl_verify(s_default) is True
+    verify_path = get_ssl_verify(s_ca)
+    assert isinstance(verify_path, str)
+    assert "memoai_combined_ca.pem" in verify_path
 
     # Proxy URL
     s_proxy_off = AppSettings(id=1, proxy_enabled=False, http_proxy="http://p:8080")
@@ -95,7 +94,7 @@ def test_get_yt_dlp_options(tmp_path, monkeypatch):
 
     opts = get_yt_dlp_options({"skip_download": True})
     assert opts["proxy"] == "http://proxy2.fujinet.vn:8080"
-    assert opts["cafile"] == str(cert_file.resolve())
+    assert opts["retries"] == 10
     assert opts.get("nocheckcertificate") is None
     assert opts["skip_download"] is True
 
@@ -109,6 +108,48 @@ def test_get_yt_dlp_options(tmp_path, monkeypatch):
     monkeypatch.setattr("memoai.network.get_active_network_settings", lambda: test_settings_insecure)
     opts2 = get_yt_dlp_options()
     assert opts2["nocheckcertificate"] is True
+    assert opts2["no_check_certificate"] is True
+
+
+def test_download_media_retry(tmp_path, monkeypatch):
+    from memoai.media import download_media
+    import yt_dlp
+
+    attempts = 0
+
+    class DummyYDL:
+        def __init__(self, opts):
+            self.opts = opts
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def extract_info(self, url, download=True):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("Temporary SSL or network glitch")
+            out_file = tmp_path / "test_video.mp4"
+            out_file.write_text("dummy video")
+            return {"id": "test_video", "title": "Test Title"}
+        def prepare_filename(self, info):
+            return str(tmp_path / "test_video.mp4")
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", DummyYDL)
+
+    progress_steps = []
+    file_path, info = download_media(
+        "https://www.youtube.com/watch?v=dummy",
+        tmp_path,
+        progress_cb=lambda step, p: progress_steps.append(step),
+        max_retries=3,
+    )
+
+    assert attempts == 2
+    assert file_path.exists()
+    assert info["title"] == "Test Title"
+    assert any("thử lại" in s.lower() for s in progress_steps)
+
 
 
 def test_network_connectivity_missing_ca():

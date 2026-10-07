@@ -42,7 +42,7 @@ class PipelineRunner:
         # 1. Resolve Media
         if is_url(input_path_or_url):
             work_dir = output_dir or (settings.get_data_dir() / "downloads")
-            media_path, info = download_media(input_path_or_url, work_dir)
+            media_path, info = download_media(input_path_or_url, work_dir, progress_cb=self.progress_cb)
             base_name = media_path.stem
             media_title = info.get("title") or base_name
         else:
@@ -60,10 +60,25 @@ class PipelineRunner:
         audio_path = work_dir / f"{base_name}.audio.wav"
         extract_audio(media_path, audio_path)
 
-        # 3. Speech Recognition (ASR)
+        # 3. Speech Recognition (ASR) with automatic retries
         self.progress_cb(f"Nhận dạng giọng nói ({self.src_lang})...", 0.40)
-        raw_segments = self.asr_provider.transcribe(audio_path, language=self.src_lang)
-        segments = normalize_segments(raw_segments)
+        import time
+        raw_segments = None
+        last_asr_err = None
+        for asr_attempt in range(1, 4):
+            try:
+                if asr_attempt > 1:
+                    self.progress_cb(f"Nhận dạng giọng nói gặp lỗi, đang thử lại (lần {asr_attempt}/3)...", 0.40)
+                    time.sleep(asr_attempt * 2)
+                raw_segments = self.asr_provider.transcribe(audio_path, language=self.src_lang)
+                if raw_segments:
+                    break
+            except Exception as e:
+                last_asr_err = e
+                if asr_attempt == 3:
+                    raise RuntimeError(f"Nhận dạng giọng nói thất bại sau 3 lần thử: {e}") from e
+
+        segments = normalize_segments(raw_segments or [])
 
         if not segments:
             raise ValueError("Không nhận diện được giọng nói trong tệp âm thanh này.")
@@ -75,15 +90,31 @@ class PipelineRunner:
         for s in segments:
             s.text = s.text.strip()
 
-        # 5. Translation
+        # 5. Translation with automatic retries
         self.progress_cb(f"Dịch song ngữ sang {self.tgt_lang}...", 0.75)
         texts_to_translate = [s.text for s in segments]
-        translations = self.mt_provider.translate(
-            texts=texts_to_translate,
-            src_lang=self.src_lang,
-            tgt_lang=self.tgt_lang,
-            mode=translation_mode
-        )
+        translations = None
+        last_mt_err = None
+        for mt_attempt in range(1, 4):
+            try:
+                if mt_attempt > 1:
+                    self.progress_cb(f"Dịch song ngữ gặp lỗi, đang thử lại (lần {mt_attempt}/3)...", 0.75)
+                    time.sleep(mt_attempt * 2)
+                translations = self.mt_provider.translate(
+                    texts=texts_to_translate,
+                    src_lang=self.src_lang,
+                    tgt_lang=self.tgt_lang,
+                    mode=translation_mode
+                )
+                if translations:
+                    break
+            except Exception as e:
+                last_mt_err = e
+                if mt_attempt == 3:
+                    raise RuntimeError(f"Dịch phụ đề thất bại sau 3 lần thử: {e}") from e
+
+        translations = translations or []
+
 
         # 6. Export subtitle files
         self.progress_cb("Xuất các định dạng phụ đề (SRT, VTT)...", 0.90)

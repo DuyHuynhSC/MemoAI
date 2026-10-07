@@ -70,7 +70,15 @@ class GeminiASR(ASRProvider):
                     err_msg = str(e)
                     last_error = e
                     # Check if 503 (high demand) or 429 (rate limit)
-                    is_transient = "503" in err_msg or "429" in err_msg or "UNAVAILABLE" in err_msg or "RESOURCE_EXHAUSTED" in err_msg
+                    is_transient = (
+                        "503" in err_msg
+                        or "429" in err_msg
+                        or "UNAVAILABLE" in err_msg
+                        or "RESOURCE_EXHAUSTED" in err_msg
+                        or "timeout" in err_msg.lower()
+                        or "connect" in err_msg.lower()
+                        or "ssl" in err_msg.lower()
+                    )
                     if is_transient:
                         wait_sec = attempt * 3
                         time.sleep(wait_sec)
@@ -82,8 +90,16 @@ class GeminiASR(ASRProvider):
         raise last_error or RuntimeError("Gemini ASR request failed across all candidate models.")
 
     def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
-        # Upload the audio file to Gemini Files API
-        uploaded_file = self.client.files.upload(file=str(audio_path))
+        # Upload the audio file to Gemini Files API with automatic retry
+        uploaded_file = None
+        for up_attempt in range(1, 4):
+            try:
+                uploaded_file = self.client.files.upload(file=str(audio_path))
+                break
+            except Exception as e:
+                if up_attempt == 3:
+                    raise RuntimeError(f"Tải tệp âm thanh lên Gemini Files API thất bại sau 3 lần thử: {e}") from e
+                time.sleep(up_attempt * 2)
 
         lang_name = "Japanese" if language == "ja" else language
         prompt = (
@@ -107,7 +123,9 @@ class GeminiASR(ASRProvider):
             return segments
         finally:
             # Clean up the uploaded file on Gemini server
-            try:
-                self.client.files.delete(name=uploaded_file.name)
-            except Exception:
-                pass
+            if uploaded_file:
+                try:
+                    self.client.files.delete(name=uploaded_file.name)
+                except Exception:
+                    pass
+

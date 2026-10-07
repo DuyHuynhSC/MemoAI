@@ -24,14 +24,27 @@ class OpenAICompatASR(ASRProvider):
 
 
     def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
-        with open(audio_path, "rb") as f:
-            response = self.client.audio.transcriptions.create(
-                file=f,
-                model=self.model,
-                language=language,
-                response_format="verbose_json",
-                timestamp_granularities=["segment"]
-            )
+        import time
+        response = None
+        last_error = None
+
+        for attempt in range(1, 4):
+            try:
+                with open(audio_path, "rb") as f:
+                    response = self.client.audio.transcriptions.create(
+                        file=f,
+                        model=self.model,
+                        language=language,
+                        response_format="verbose_json",
+                        timestamp_granularities=["segment"]
+                    )
+                break
+            except Exception as e:
+                last_error = e
+                if attempt == 3:
+                    raise RuntimeError(f"Nhận dạng giọng nói OpenAI thất bại sau 3 lần thử: {e}") from e
+                time.sleep(attempt * 2)
+
 
         segments: list[Segment] = []
         raw_segments = getattr(response, "segments", None)
