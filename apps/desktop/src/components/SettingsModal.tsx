@@ -130,6 +130,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         api_key: profile.api_key,
         base_url: profile.base_url,
         model: profile.model || "gemini-2.5-flash",
+        proxy_mode: profile.proxy_mode || "auto",
       });
       setTestResult({
         profileId: profile.id,
@@ -581,6 +582,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
 
+                    {/* Proxy Mode Selection */}
+                    <div className="bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center space-x-1.5">
+                          <Globe className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Chế độ kết nối Proxy:</span>
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setEditingProfile({ ...editingProfile, proxy_mode: "auto" })}
+                          className={`p-2.5 rounded-lg border text-left transition ${
+                            (editingProfile.proxy_mode || "auto") === "auto"
+                              ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/15 text-indigo-950 dark:text-white font-semibold"
+                              : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                          }`}
+                        >
+                          <p className="font-semibold text-xs">⚙️ Tự động</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Theo cấu hình Proxy & Bỏ qua LAN</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditingProfile({ ...editingProfile, proxy_mode: "always" })}
+                          className={`p-2.5 rounded-lg border text-left transition ${
+                            editingProfile.proxy_mode === "always"
+                              ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/15 text-indigo-950 dark:text-white font-semibold"
+                              : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                          }`}
+                        >
+                          <p className="font-semibold text-xs">🌐 Luôn qua Proxy</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Dành cho Custom OpenAI / Cloud</p>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setEditingProfile({ ...editingProfile, proxy_mode: "never" })}
+                          className={`p-2.5 rounded-lg border text-left transition ${
+                            editingProfile.proxy_mode === "never"
+                              ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/15 text-indigo-950 dark:text-white font-semibold"
+                              : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                          }`}
+                        >
+                          <p className="font-semibold text-xs">🏠 Không qua Proxy</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Model nội bộ / Ollama / LAN</p>
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="flex items-center justify-between pt-2">
                       <button
                         type="button"
@@ -624,6 +675,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             base_url: "http://localhost:11434/v1",
                             can_asr: false,
                             can_translate: true,
+                            proxy_mode: "never",
                           })
                         }
                         className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md transition"
@@ -645,6 +697,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                               <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700">
                                 {p.provider_type === "gemini" ? "Google Gemini" : "OpenAI Compatible"}
                               </span>
+                              {p.proxy_mode === "always" ? (
+                                <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                  Luôn qua Proxy
+                                </span>
+                              ) : p.proxy_mode === "never" ? (
+                                <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                  Không qua Proxy (LAN)
+                                </span>
+                              ) : null}
                             </div>
                             <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                               Model: <span className="text-slate-800 dark:text-slate-200">{p.model}</span>

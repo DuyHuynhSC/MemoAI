@@ -170,6 +170,7 @@ export async function testProfileConnection(payload: {
   api_key?: string;
   base_url?: string;
   model: string;
+  proxy_mode?: string;
 }): Promise<{ success: boolean; latency_ms?: number; message: string }> {
   const res = await fetch(`${API_BASE}/api/settings/profiles/test`, {
     method: "POST",

@@ -76,6 +76,7 @@ class AIProfile(SQLModel, table=True):
     model: str = Field(default="gemini-2.5-flash")
     can_asr: bool = Field(default=True)
     can_translate: bool = Field(default=True)
+    proxy_mode: str = Field(default="auto")  # "auto", "always", "never"
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )

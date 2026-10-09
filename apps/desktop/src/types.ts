@@ -72,6 +72,7 @@ export interface AIProfile {
   model: string;
   can_asr: boolean;
   can_translate: boolean;
+  proxy_mode?: "auto" | "always" | "never";
   created_at?: string;
 }
 

@@ -44,6 +44,12 @@ def init_db():
                 if col_name not in existing_p_cols:
                     conn.execute(text(f"ALTER TABLE projects ADD COLUMN {col_name} {col_def}"))
 
+            # Auto-migrate AIProfile columns for existing SQLite databases
+            cursor_ai = conn.execute(text("PRAGMA table_info(ai_profiles)"))
+            existing_ai_cols = {row[1] for row in cursor_ai.fetchall()}
+            if "proxy_mode" not in existing_ai_cols:
+                conn.execute(text("ALTER TABLE ai_profiles ADD COLUMN proxy_mode VARCHAR DEFAULT 'auto'"))
+
             conn.commit()
         except Exception:
             pass

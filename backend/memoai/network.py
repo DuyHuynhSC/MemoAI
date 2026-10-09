@@ -3,6 +3,8 @@ import sys
 import ssl
 import time
 import base64
+import ipaddress
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Optional, Union
 import certifi
@@ -240,15 +242,137 @@ def get_proxy_url(app_set: Optional[AppSettings] = None) -> Optional[str]:
     return None
 
 
-def get_httpx_client(app_set: Optional[AppSettings] = None, **kwargs) -> httpx.Client:
-    """Create an httpx.Client configured with active proxy and SSL certificate settings."""
+def extract_host_port(url_or_host: str) -> tuple[str, Optional[int]]:
+    """Clean and extract lowercase hostname and port from a URL or host string."""
+    s = url_or_host.strip()
+    if not s:
+        return "", None
+    if "://" not in s:
+        s = "http://" + s
+    p = urlparse(s)
+    return (p.hostname or "").lower(), p.port
+
+
+def is_target_bypassed_proxy(target_url: str, app_set: Optional[AppSettings] = None) -> bool:
+    """Determine whether target_url should bypass the corporate proxy.
+    Checks:
+    1. Localhost, 127.0.0.1, ::1, 0.0.0.0, and .local addresses
+    2. Private LAN IPs (10.x.x.x, 172.16-31.x.x, 192.168.x.x, 169.254.x.x)
+    3. User-defined no_proxy list (supports hostname, full URL with/without port, wildcard *.domain, and CIDRs)
+    """
+    if not target_url:
+        return False
+    if app_set is None:
+        app_set = get_active_network_settings()
+
+    target_host, target_port = extract_host_port(target_url)
+    if not target_host:
+        return False
+
+    # 1. Localhost / loopback / local domain
+    if target_host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or target_host.endswith(".local"):
+        return True
+
+    # 2. Private LAN IP ranges
+    try:
+        ip = ipaddress.ip_address(target_host)
+        if ip.is_private or ip.is_loopback:
+            return True
+    except ValueError:
+        pass
+
+    # 3. User-configured no_proxy
+    no_proxy_str = app_set.no_proxy or "localhost,127.0.0.1"
+    for raw_entry in no_proxy_str.replace(";", ",").split(","):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        e_host, e_port = extract_host_port(entry)
+        if not e_host:
+            continue
+
+        # If entry specifies a port, target must match both host and port
+        if e_port is not None and target_port is not None and e_port != target_port:
+            continue
+
+        # Wildcard matching (e.g. *.corp.local)
+        if e_host.startswith("*."):
+            suffix = e_host[1:]
+            if target_host.endswith(suffix):
+                return True
+        elif e_host.startswith("."):
+            if target_host.endswith(e_host) or target_host == e_host[1:]:
+                return True
+
+        # CIDR matching
+        try:
+            net = ipaddress.ip_network(e_host, strict=False)
+            t_ip = ipaddress.ip_address(target_host)
+            if t_ip in net:
+                return True
+        except ValueError:
+            pass
+
+        # Exact hostname/IP match
+        if target_host == e_host:
+            return True
+
+    return False
+
+
+def get_proxy_for_target(
+    target_url: Optional[str] = None,
+    proxy_mode: Optional[str] = "auto",
+    app_set: Optional[AppSettings] = None,
+) -> Optional[str]:
+    """Resolve whether to use proxy for a specific target URL or AI Profile.
+    proxy_mode:
+      - 'always': Always force proxy (e.g. Custom OpenAI Cloud)
+      - 'never': Force direct connection (e.g. Internal Server / Ollama)
+      - 'auto': Use proxy if enabled, unless bypassed by no_proxy / LAN
+    """
+    if app_set is None:
+        app_set = get_active_network_settings()
+
+    if not app_set.proxy_enabled:
+        return None
+
+    proxy_url = app_set.https_proxy or app_set.http_proxy or None
+    if not proxy_url:
+        return None
+
+    mode = (proxy_mode or "auto").lower()
+    if mode == "always":
+        return proxy_url
+    if mode == "never":
+        return None
+
+    # mode == 'auto'
+    if target_url and is_target_bypassed_proxy(target_url, app_set):
+        return None
+
+    return proxy_url
+
+
+def get_httpx_client(
+    app_set: Optional[AppSettings] = None,
+    target_url: Optional[str] = None,
+    proxy_mode: Optional[str] = "auto",
+    **kwargs
+) -> httpx.Client:
+    """Create an httpx.Client configured with active proxy and SSL certificate settings.
+    Respects target_url and proxy_mode:
+    - 'always': Always routes through proxy (for Custom OpenAI / Cloud API)
+    - 'never': Direct connection (for internal models / Ollama)
+    - 'auto': Checks target_url against no_proxy and private IP addresses
+    """
     verify = kwargs.pop("verify", None)
     if verify is None:
         verify = get_ssl_verify(app_set)
 
     proxy = kwargs.pop("proxy", None)
     if proxy is None:
-        proxy = get_proxy_url(app_set)
+        proxy = get_proxy_for_target(target_url=target_url, proxy_mode=proxy_mode, app_set=app_set)
 
     timeout = kwargs.pop("timeout", 30.0)
 

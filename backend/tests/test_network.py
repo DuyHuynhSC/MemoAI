@@ -199,3 +199,39 @@ def test_settings_api_proxy_and_ca():
 
     # 4. Revert settings to proxy disabled
     client.put("/api/settings", json={"proxy_enabled": False, "ca_cert_path": None})
+
+
+def test_proxy_bypass_and_per_target_routing():
+    from memoai.network import is_target_bypassed_proxy, get_proxy_for_target
+
+    app_set = AppSettings(
+        id=1,
+        proxy_enabled=True,
+        http_proxy="http://corp-proxy:8080",
+        https_proxy="http://corp-proxy:8080",
+        no_proxy="localhost,127.0.0.1,http://custom-internal.corp:8000/v1,192.168.1.100:11434,*.local",
+    )
+
+    # 1. Test is_target_bypassed_proxy
+    assert is_target_bypassed_proxy("http://localhost:11434/v1", app_set) is True
+    assert is_target_bypassed_proxy("http://127.0.0.1:8000", app_set) is True
+    assert is_target_bypassed_proxy("http://192.168.1.50:11434", app_set) is True  # Private LAN
+    assert is_target_bypassed_proxy("http://10.0.5.1:11434", app_set) is True      # Private LAN
+    assert is_target_bypassed_proxy("http://custom-internal.corp:8000/v1", app_set) is True # Cleaned from URL in no_proxy
+    assert is_target_bypassed_proxy("http://192.168.1.100:11434/v1", app_set) is True
+    assert is_target_bypassed_proxy("https://api.openai.com/v1", app_set) is False
+
+    # 2. Test get_proxy_for_target with different proxy_modes
+    # Mode: auto
+    assert get_proxy_for_target("http://192.168.1.50:11434", proxy_mode="auto", app_set=app_set) is None
+    assert get_proxy_for_target("https://api.openai.com/v1", proxy_mode="auto", app_set=app_set) == "http://corp-proxy:8080"
+
+    # Mode: never (forced direct / internal model)
+    assert get_proxy_for_target("https://api.openai.com/v1", proxy_mode="never", app_set=app_set) is None
+    assert get_proxy_for_target("http://localhost:11434", proxy_mode="never", app_set=app_set) is None
+
+    # Mode: always (forced proxy / Custom OpenAI Cloud)
+    assert get_proxy_for_target("https://api.openai.com/v1", proxy_mode="always", app_set=app_set) == "http://corp-proxy:8080"
+    assert get_proxy_for_target("http://localhost:11434", proxy_mode="always", app_set=app_set) == "http://corp-proxy:8080"
+    assert get_proxy_for_target("http://192.168.1.50:11434", proxy_mode="always", app_set=app_set) == "http://corp-proxy:8080"
+

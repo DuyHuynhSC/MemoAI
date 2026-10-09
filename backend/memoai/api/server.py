@@ -170,6 +170,7 @@ class TestProfileRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     model: str
+    proxy_mode: Optional[str] = "auto"
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -273,6 +274,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                         base_url=asr_profile.base_url or settings.openai_base_url,
                         api_key=asr_profile.api_key or settings.openai_api_key or "dummy_key",
                         model=asr_profile.model,
+                        proxy_mode=getattr(asr_profile, "proxy_mode", "auto"),
                     )
             else:
                 actual_asr_pid = None
@@ -328,6 +330,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                         base_url=mt_profile.base_url or settings.openai_base_url,
                         api_key=mt_profile.api_key or settings.openai_api_key or "dummy_key",
                         model=mt_profile.model,
+                        proxy_mode=getattr(mt_profile, "proxy_mode", "auto"),
                     )
             else:
                 actual_mt_pid = None
@@ -560,6 +563,7 @@ def update_profile(profile_id: int, updated: AIProfile, session: Session = Depen
     p.model = updated.model
     p.can_asr = updated.can_asr
     p.can_translate = updated.can_translate
+    p.proxy_mode = getattr(updated, "proxy_mode", "auto")
     session.add(p)
     session.commit()
     session.refresh(p)
@@ -618,7 +622,7 @@ def test_profile(req: TestProfileRequest):
             client = OpenAI(
                 base_url=base_url,
                 api_key=req.api_key or "dummy_key",
-                http_client=get_httpx_client(),
+                http_client=get_httpx_client(target_url=base_url, proxy_mode=req.proxy_mode),
             )
             res = client.chat.completions.create(
                 model=req.model,
