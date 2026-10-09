@@ -1,11 +1,15 @@
 import json
 import time
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
 from google.genai import errors
 from memoai.providers.asr.base import ASRProvider, Segment
+from memoai.media import get_media_duration
 
 
 class GeminiSegmentOutput(BaseModel):
@@ -28,7 +32,8 @@ FALLBACK_MODELS = [
 
 class GeminiASR(ASRProvider):
     """ASR using Google Gemini Multimodal Audio capability.
-    Includes automatic retry with exponential backoff on 503/429 and fallback models.
+    Uses Inline Audio (types.Part.from_bytes) by default to prevent blocking by corporate firewalls
+    that restrict file uploads. Includes automatic retry with exponential backoff on 503/429 and fallback models.
     """
 
     def __init__(self, api_key: str | None = None, model: str = "gemini-2.5-flash"):
@@ -45,8 +50,28 @@ class GeminiASR(ASRProvider):
         http_options = types.HttpOptions(client_args=client_args) if client_args else None
         self.client = genai.Client(api_key=self.api_key, http_options=http_options)
 
+    def _convert_to_mp3(
+        self,
+        audio_path: Path,
+        start_sec: float | None = None,
+        duration_sec: float | None = None
+    ) -> Path:
+        """Compress audio to highly compact 16kHz mono MP3 (32kbps) using ffmpeg."""
+        ffmpeg_cmd = shutil.which("ffmpeg") or "ffmpeg"
+        temp_file = Path(tempfile.NamedTemporaryFile(suffix=".mp3", delete=False).name)
 
-    def _call_generate_with_retry(self, uploaded_file, prompt: str) -> str:
+        cmd = [ffmpeg_cmd, "-y"]
+        if start_sec is not None and start_sec > 0:
+            cmd.extend(["-ss", f"{start_sec:.2f}"])
+        cmd.extend(["-i", str(audio_path)])
+        if duration_sec is not None and duration_sec > 0:
+            cmd.extend(["-t", f"{duration_sec:.2f}"])
+        cmd.extend(["-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k", "-f", "mp3", str(temp_file)])
+
+        subprocess.run(cmd, capture_output=True, check=True)
+        return temp_file
+
+    def _call_generate_with_retry(self, audio_part, prompt: str) -> str:
         from memoai.logger import get_logger
         logger = get_logger("memoai.asr.gemini")
 
@@ -61,21 +86,20 @@ class GeminiASR(ASRProvider):
         )
 
         for model_name in models_to_try:
-            logger.info(f"Gửi yêu cầu nhận dạng âm thanh tới Gemini model: {model_name}")
+            logger.info(f"Gửi yêu cầu nhận dạng âm thanh Inline tới Gemini model: {model_name}")
             for attempt in range(1, 4):
                 try:
                     response = self.client.models.generate_content(
                         model=model_name,
-                        contents=[uploaded_file, prompt],
+                        contents=[audio_part, prompt],
                         config=config,
                     )
-                    logger.info(f"Gemini ASR ({model_name}) phản hồi thành công (attempt {attempt})")
+                    logger.info(f"Gemini ASR Inline ({model_name}) phản hồi thành công (attempt {attempt})")
                     return response.text or "{}"
                 except (errors.APIError, Exception) as e:
                     err_msg = str(e)
                     last_error = e
-                    logger.warning(f"Lỗi Gemini ASR (model={model_name}, attempt={attempt}/3): {e}")
-                    # Check if 503 (high demand) or 429 (rate limit)
+                    logger.warning(f"Lỗi Gemini ASR Inline (model={model_name}, attempt={attempt}/3): {e}")
                     is_transient = (
                         "503" in err_msg
                         or "429" in err_msg
@@ -87,81 +111,109 @@ class GeminiASR(ASRProvider):
                     )
                     if is_transient:
                         wait_sec = attempt * 3
-                        logger.info(f"Chờ {wait_sec}s rồi thử lại Gemini ASR...")
+                        logger.info(f"Chờ {wait_sec}s rồi thử lại Gemini ASR Inline...")
                         time.sleep(wait_sec)
                         continue
                     else:
-                        # Non-transient error, don't retry this model
                         break
 
-        err_final = f"Nhận dạng giọng nói thất bại trên tất cả model Gemini ({', '.join(models_to_try)}): {last_error}"
+        err_final = f"Nhận dạng giọng nói Inline thất bại trên tất cả model Gemini ({', '.join(models_to_try)}): {last_error}"
         logger.error(err_final)
         raise RuntimeError(err_final) from last_error
 
-    def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+    def _transcribe_single_part(
+        self,
+        audio_part,
+        language: str,
+        time_offset: float = 0.0
+    ) -> list[Segment]:
         from memoai.logger import get_logger
         logger = get_logger("memoai.asr.gemini")
-
-        audio_size = audio_path.stat().st_size if audio_path.exists() else 0
-        logger.info(f"Bắt đầu ASR với Gemini: audio={audio_path} ({audio_size} bytes), lang={language}")
-
-        # Upload the audio file to Gemini Files API with automatic retry
-        uploaded_file = None
-        for up_attempt in range(1, 4):
-            try:
-                logger.info(f"Đang tải audio lên Gemini Files API (attempt {up_attempt}/3)...")
-                uploaded_file = self.client.files.upload(file=str(audio_path))
-                logger.info(f"Tải audio lên Gemini thành công: {uploaded_file.name}")
-                break
-            except Exception as e:
-                logger.warning(f"Lỗi tải audio lên Gemini (attempt {up_attempt}/3): {e}")
-                if up_attempt == 3:
-                    err_str = f"Tải tệp âm thanh lên Gemini Files API thất bại sau 3 lần thử: {e}"
-                    logger.error(err_str)
-                    raise RuntimeError(err_str) from e
-                time.sleep(up_attempt * 2)
 
         lang_name = "Japanese" if language == "ja" else language
         prompt = (
             f"You are a professional audio transcriber. Listen carefully to the audio and transcribe "
             f"every spoken sentence in {lang_name} with accurate timestamps in seconds.\n"
             f"Break down sentences at natural pauses (about 2-7 seconds per segment).\n"
-            f"Do not hallucinate, do not summarize, transcribe exactly what is said."
+            f"Do not hallucinate, do not summarize, transcribe exactly what is said. "
+            f"If no speech is detected in the audio, return an empty segments list."
         )
 
+        raw_text = self._call_generate_with_retry(audio_part, prompt)
+        clean_text = raw_text.strip()
+        if clean_text.startswith("```"):
+            lines = clean_text.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            clean_text = "\n".join(lines).strip()
+
         try:
-            raw_text = self._call_generate_with_retry(uploaded_file, prompt)
-            clean_text = raw_text.strip()
-            if clean_text.startswith("```"):
-                lines = clean_text.splitlines()
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                clean_text = "\n".join(lines).strip()
+            data = json.loads(clean_text)
+        except json.JSONDecodeError as jde:
+            logger.error(f"Lỗi phân tích JSON kết quả Gemini ASR: {jde}. Raw: {clean_text[:500]}")
+            raise RuntimeError(f"Lỗi phân tích cú pháp JSON từ Gemini ASR: {jde}") from jde
 
-            try:
-                data = json.loads(clean_text)
-            except json.JSONDecodeError as jde:
-                logger.error(f"Lỗi phân tích JSON kết quả Gemini ASR: {jde}. Raw: {clean_text[:500]}")
-                raise RuntimeError(f"Lỗi phân tích cú pháp JSON từ Gemini ASR: {jde}") from jde
+        segments_data = data.get("segments", [])
+        segments: list[Segment] = []
+        for item in segments_data:
+            s_start = float(item.get("start", 0.0)) + time_offset
+            s_end = float(item.get("end", 0.0)) + time_offset
+            s_text = str(item.get("text", "")).strip()
+            if s_text:
+                segments.append(Segment(start=s_start, end=s_end, text=s_text))
+        return segments
 
-            segments_data = data.get("segments", [])
-            segments: list[Segment] = []
-            for item in segments_data:
-                segments.append(Segment(
-                    start=float(item.get("start", 0.0)),
-                    end=float(item.get("end", 0.0)),
-                    text=str(item.get("text", "")).strip()
-                ))
-            logger.info(f"Hoàn thành Gemini ASR: {len(segments)} segments được nhận diện.")
-            return segments
-        finally:
-            # Clean up the uploaded file on Gemini server
-            if uploaded_file:
+    def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+        from memoai.logger import get_logger
+        logger = get_logger("memoai.asr.gemini")
+
+        audio_size = audio_path.stat().st_size if audio_path.exists() else 0
+        logger.info(f"Bắt đầu ASR với Gemini Inline: audio={audio_path} ({audio_size} bytes), lang={language}")
+
+        # Get total media duration
+        try:
+            total_duration = get_media_duration(audio_path)
+        except Exception as e:
+            logger.warning(f"Không thể đo thời lượng audio qua ffprobe: {e}. Coi như tệp ngắn.")
+            total_duration = 0.0
+
+        CHUNK_DURATION = 600.0  # 10 minutes per chunk (approx 2.4 MB MP3)
+        all_segments: list[Segment] = []
+
+        if total_duration > CHUNK_DURATION:
+            num_chunks = int(total_duration // CHUNK_DURATION) + (1 if total_duration % CHUNK_DURATION > 0 else 0)
+            logger.info(f"Thời lượng audio ({total_duration:.1f}s) vượt quá 10 phút. Chia làm {num_chunks} đoạn Inline để xử lý.")
+
+            for i in range(num_chunks):
+                chunk_start = i * CHUNK_DURATION
+                chunk_dur = min(CHUNK_DURATION, total_duration - chunk_start)
+                logger.info(f"Xử lý đoạn {i + 1}/{num_chunks}: từ {chunk_start:.1f}s đến {chunk_start + chunk_dur:.1f}s...")
+
+                mp3_temp = None
                 try:
-                    logger.info(f"Xóa tệp tạm trên Gemini Files API: {uploaded_file.name}")
-                    self.client.files.delete(name=uploaded_file.name)
-                except Exception:
-                    pass
+                    mp3_temp = self._convert_to_mp3(audio_path, start_sec=chunk_start, duration_sec=chunk_dur)
+                    mp3_bytes = mp3_temp.read_bytes()
+                    audio_part = types.Part.from_bytes(data=mp3_bytes, mime_type="audio/mp3")
+                    chunk_segs = self._transcribe_single_part(audio_part, language=language, time_offset=chunk_start)
+                    all_segments.extend(chunk_segs)
+                finally:
+                    if mp3_temp and mp3_temp.exists():
+                        mp3_temp.unlink(missing_ok=True)
+        else:
+            mp3_temp = None
+            try:
+                logger.info("Nén audio sang mono 16kHz 32kbps MP3 để truyền Inline qua JSON...")
+                mp3_temp = self._convert_to_mp3(audio_path)
+                mp3_bytes = mp3_temp.read_bytes()
+                logger.info(f"Kích thước audio Inline sau nén: {len(mp3_bytes)} bytes (không dùng Files API upload).")
+                audio_part = types.Part.from_bytes(data=mp3_bytes, mime_type="audio/mp3")
+                all_segments = self._transcribe_single_part(audio_part, language=language, time_offset=0.0)
+            finally:
+                if mp3_temp and mp3_temp.exists():
+                    mp3_temp.unlink(missing_ok=True)
+
+        logger.info(f"Hoàn thành Gemini ASR Inline: {len(all_segments)} segments được nhận diện.")
+        return all_segments
 

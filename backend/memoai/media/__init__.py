@@ -31,6 +31,11 @@ def get_yt_dlp_options(extra_opts: dict | None = None) -> dict:
         "extractor_retries": 5,
         "retry_sleep": 2,
         "socket_timeout": 30,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+            }
+        },
     }
 
     if app_set.proxy_enabled and (app_set.https_proxy or app_set.http_proxy):
@@ -51,7 +56,7 @@ def download_media(
     url: str,
     output_dir: Path,
     progress_cb: Callable[[str, float], None] | None = None,
-    max_retries: int = 3,
+    max_retries: int = 4,
 ) -> tuple[Path, dict]:
     """Download video or audio using yt-dlp with automatic retries and format fallbacks.
     Returns path to downloaded file and info dict.
@@ -66,6 +71,7 @@ def download_media(
     format_candidates = [
         "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
         "best[height<=720]/best",
+        "bestaudio/best",
         "best",
     ]
 

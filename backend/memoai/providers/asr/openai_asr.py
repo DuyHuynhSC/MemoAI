@@ -42,7 +42,14 @@ class OpenAICompatASR(ASRProvider):
             except Exception as e:
                 last_error = e
                 if attempt == 3:
-                    raise RuntimeError(f"Nhận dạng giọng nói OpenAI thất bại sau 3 lần thử: {e}") from e
+                    err_str = str(e)
+                    hint = ""
+                    if "Connection error" in err_str or "APIConnectionError" in err_str or "connect" in err_str.lower():
+                        hint = (
+                            "\n[Gợi ý khắc phục]: Mạng công ty có thể đang chặn upload file lên OpenAI (/v1/audio/transcriptions). "
+                            "Vui lòng chuyển sang dùng bộ nhận dạng 'Google Gemini Flash' (hỗ trợ truyền âm thanh Inline qua JSON, không bị chặn bởi bộ lọc upload file của tường lửa)."
+                        )
+                    raise RuntimeError(f"Nhận dạng giọng nói OpenAI thất bại sau 3 lần thử: {e}{hint}") from e
                 time.sleep(attempt * 2)
 
 
