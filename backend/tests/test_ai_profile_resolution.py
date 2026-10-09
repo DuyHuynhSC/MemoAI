@@ -75,3 +75,65 @@ def test_create_project_stores_profiles():
         if p:
             session.delete(p)
             session.commit()
+
+
+def test_test_profile_endpoint_openai_chat_and_asr():
+    from unittest.mock import MagicMock, patch
+    client = TestClient(app)
+
+    with patch("openai.OpenAI") as mock_openai_cls:
+        mock_instance = MagicMock()
+        mock_openai_cls.return_value = mock_instance
+
+        # Mock chat completion
+        mock_chat_choice = MagicMock()
+        mock_chat_choice.message.content = "OK"
+        mock_instance.chat.completions.create.return_value = MagicMock(choices=[mock_chat_choice])
+
+        # Mock models list
+        mock_model_1 = MagicMock(id="translator")
+        mock_model_2 = MagicMock(id="whisper-large-v3")
+        mock_instance.models.list.return_value = MagicMock(data=[mock_model_1, mock_model_2])
+
+        # 1. Test when can_asr is False
+        res1 = client.post("/api/settings/profiles/test", json={
+            "provider_type": "openai_compat",
+            "base_url": "https://models-gateway.fujinet.net/v1",
+            "model": "translator",
+            "can_asr": False,
+        })
+        assert res1.status_code == 200
+        d1 = res1.json()
+        assert d1["success"] is True
+        assert d1["chat_ok"] is True
+        assert d1["discovered_models"] == ["translator", "whisper-large-v3"]
+        assert d1["asr_tested"] is False
+
+        # 2. Test when can_asr is True but gateway does not support ASR (e.g. 404 or model not supported)
+        mock_instance.audio.transcriptions.create.side_effect = Exception("404 Not Found: /v1/audio/transcriptions")
+        res2 = client.post("/api/settings/profiles/test", json={
+            "provider_type": "openai_compat",
+            "base_url": "https://models-gateway.fujinet.net/v1",
+            "model": "translator",
+            "can_asr": True,
+        })
+        assert res2.status_code == 200
+        d2 = res2.json()
+        assert d2["chat_ok"] is True
+        assert d2["asr_tested"] is True
+        assert d2["asr_supported"] is False
+        assert "404" in d2["asr_message"]
+
+        # 3. Test when can_asr is True and ASR succeeds
+        mock_instance.audio.transcriptions.create.side_effect = None
+        mock_instance.audio.transcriptions.create.return_value = MagicMock(text="test")
+        res3 = client.post("/api/settings/profiles/test", json={
+            "provider_type": "openai_compat",
+            "base_url": "https://models-gateway.fujinet.net/v1",
+            "model": "whisper-large-v3",
+            "can_asr": True,
+        })
+        assert res3.status_code == 200
+        d3 = res3.json()
+        assert d3["asr_supported"] is True
+

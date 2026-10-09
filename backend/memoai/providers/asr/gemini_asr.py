@@ -24,9 +24,10 @@ class GeminiASROutput(BaseModel):
 
 FALLBACK_MODELS = [
     "gemini-2.5-flash",
-    "gemini-flash-latest",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.5-pro",
+    "gemini-flash-latest",
 ]
 
 
@@ -179,12 +180,12 @@ class GeminiASR(ASRProvider):
             logger.warning(f"Không thể đo thời lượng audio qua ffprobe: {e}. Coi như tệp ngắn.")
             total_duration = 0.0
 
-        CHUNK_DURATION = 600.0  # 10 minutes per chunk (approx 2.4 MB MP3)
+        CHUNK_DURATION = 120.0  # 2 minutes per chunk (approx 480 KB MP3) to pass through corporate proxies safely
         all_segments: list[Segment] = []
 
         if total_duration > CHUNK_DURATION:
             num_chunks = int(total_duration // CHUNK_DURATION) + (1 if total_duration % CHUNK_DURATION > 0 else 0)
-            logger.info(f"Thời lượng audio ({total_duration:.1f}s) vượt quá 10 phút. Chia làm {num_chunks} đoạn Inline để xử lý.")
+            logger.info(f"Thời lượng audio ({total_duration:.1f}s) vượt quá 2 phút. Chia làm {num_chunks} đoạn nhỏ để truyền qua Proxy an toàn.")
 
             for i in range(num_chunks):
                 chunk_start = i * CHUNK_DURATION

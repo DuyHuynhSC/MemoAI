@@ -1,4 +1,4 @@
-import type { Project, Segment, Vocab, WordDefinition, AIProfile, AppSettings } from "../types";
+import type { Project, Segment, Vocab, WordDefinition, AIProfile, AppSettings, ProfileTestResult } from "../types";
 
 export const API_BASE = "http://127.0.0.1:8000";
 
@@ -171,7 +171,9 @@ export async function testProfileConnection(payload: {
   base_url?: string;
   model: string;
   proxy_mode?: string;
-}): Promise<{ success: boolean; latency_ms?: number; message: string }> {
+  can_asr?: boolean;
+  can_translate?: boolean;
+}): Promise<ProfileTestResult> {
   const res = await fetch(`${API_BASE}/api/settings/profiles/test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

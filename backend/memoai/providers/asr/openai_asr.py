@@ -35,23 +35,47 @@ class OpenAICompatASR(ASRProvider):
         for attempt in range(1, 4):
             try:
                 with open(audio_path, "rb") as f:
-                    response = self.client.audio.transcriptions.create(
-                        file=f,
-                        model=self.model,
-                        language=language,
-                        response_format="verbose_json",
-                        timestamp_granularities=["segment"]
-                    )
+                    try:
+                        response = self.client.audio.transcriptions.create(
+                            file=f,
+                            model=self.model,
+                            language=language,
+                            response_format="verbose_json",
+                            timestamp_granularities=["segment"]
+                        )
+                    except Exception as first_e:
+                        first_err_str = str(first_e).lower()
+                        if "granularities" in first_err_str or "verbose_json" in first_err_str or "400" in first_err_str:
+                            f.seek(0)
+                            response = self.client.audio.transcriptions.create(
+                                file=f,
+                                model=self.model,
+                                language=language,
+                            )
+                        else:
+                            raise first_e
                 break
             except Exception as e:
                 last_error = e
                 if attempt == 3:
                     err_str = str(e)
                     hint = ""
-                    if "Connection error" in err_str or "APIConnectionError" in err_str or "connect" in err_str.lower():
+                    if "404" in err_str or "not found" in err_str.lower():
+                        hint = (
+                            f"\n[Nguyên nhân]: Cổng máy chủ nội bộ không có endpoint '/v1/audio/transcriptions'. "
+                            f"Mô hình '{self.model}' là mô hình ngôn ngữ văn bản (Chat/MT), không phải mô hình Whisper/ASR. "
+                            f"Vui lòng vào Cài đặt -> AI Profile, sửa cấu hình '{self.model}' và BỎ CHỌN 'Nhận dạng giọng nói (ASR)'."
+                        )
+                    elif "model" in err_str.lower() and ("support" in err_str.lower() or "not exist" in err_str.lower()):
+                        hint = (
+                            f"\n[Nguyên nhân]: Mô hình '{self.model}' không hỗ trợ xử lý âm thanh. "
+                            f"Vui lòng sử dụng mô hình Whisper hoặc bỏ chọn tính năng ASR cho mô hình này."
+                        )
+                    elif "Connection error" in err_str or "APIConnectionError" in err_str or "connect" in err_str.lower():
                         hint = (
                             "\n[Gợi ý khắc phục]: Mạng công ty có thể đang chặn upload file lên OpenAI (/v1/audio/transcriptions). "
-                            "Vui lòng chuyển sang dùng bộ nhận dạng 'Google Gemini Flash' (hỗ trợ truyền âm thanh Inline qua JSON, không bị chặn bởi bộ lọc upload file của tường lửa)."
+                            "Nếu đây là server nội bộ, hãy chọn Chế độ kết nối 'Không qua Proxy'. "
+                            "Hoặc chuyển sang dùng bộ nhận dạng 'Google Gemini Flash' (truyền âm thanh Inline không bị chặn upload file)."
                         )
                     raise RuntimeError(f"Nhận dạng giọng nói OpenAI thất bại sau 3 lần thử: {e}{hint}") from e
                 time.sleep(attempt * 2)

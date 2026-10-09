@@ -17,6 +17,8 @@ import {
   Globe,
   Shield,
   Upload,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   fetchSettings,
@@ -27,7 +29,7 @@ import {
   testNetworkConnection,
   uploadCaCertificate,
 } from "../api/client";
-import type { AIProfile, AppSettings, AppTheme, NetworkTestResult } from "../types";
+import type { AIProfile, AppSettings, AppTheme, NetworkTestResult, ProfileTestResult } from "../types";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -58,12 +60,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   // Edit / Add profile form state
   const [editingProfile, setEditingProfile] = useState<Partial<AIProfile> | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [testResult, setTestResult] = useState<{
-    profileId?: number;
-    success?: boolean;
-    message?: string;
-    loading?: boolean;
-  } | null>(null);
+  const [testResult, setTestResult] = useState<(ProfileTestResult & { loading?: boolean }) | null>(null);
 
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettingsMsg, setSavedSettingsMsg] = useState(false);
@@ -123,7 +120,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleTestConnection = async (profile: Partial<AIProfile>) => {
-    setTestResult({ profileId: profile.id, loading: true });
+    setTestResult({
+      profileId: profile.id,
+      loading: true,
+      success: false,
+      message: "Đang kiểm tra kết nối...",
+    });
     try {
       const res = await testProfileConnection({
         provider_type: profile.provider_type || "gemini",
@@ -131,11 +133,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         base_url: profile.base_url,
         model: profile.model || "gemini-2.5-flash",
         proxy_mode: profile.proxy_mode || "auto",
+        can_asr: profile.can_asr ?? false,
+        can_translate: profile.can_translate ?? true,
       });
       setTestResult({
+        ...res,
         profileId: profile.id,
-        success: res.success,
-        message: res.message,
         loading: false,
       });
     } catch (err: any) {
@@ -632,20 +635,118 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
 
+                    {/* Test Result Card inside form */}
+                    {testResult && (
+                      <div
+                        className={`p-3.5 rounded-xl text-xs border space-y-2.5 transition ${
+                          testResult.loading
+                            ? "bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800/60 text-indigo-800 dark:text-indigo-300"
+                            : testResult.success
+                            ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200"
+                            : "bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-800/60 text-red-900 dark:text-red-200"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center space-x-2">
+                            {testResult.loading ? (
+                              <Loader2 className="w-4 h-4 text-indigo-500 animate-spin flex-shrink-0" />
+                            ) : testResult.success ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                            )}
+                            <span className="font-semibold text-xs">
+                              {testResult.loading
+                                ? "Đang gửi yêu cầu kiểm tra kết nối & đo độ trễ..."
+                                : testResult.message}
+                            </span>
+                          </div>
+                          {testResult.latency_ms !== undefined && (
+                            <span className="px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 text-[10px] font-mono font-bold">
+                              {testResult.latency_ms} ms
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Detailed ASR compatibility feedback */}
+                        {!testResult.loading && editingProfile.can_asr && (
+                          <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 space-y-1.5">
+                            {testResult.asr_supported ? (
+                              <div className="flex items-center space-x-1.5 text-emerald-700 dark:text-emerald-300 font-medium">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                <span>{testResult.asr_message || "Mô hình này hỗ trợ nhận dạng giọng nói (ASR) qua API!"}</span>
+                              </div>
+                            ) : (
+                              <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-800 dark:text-amber-200 space-y-1.5">
+                                <div className="flex items-center space-x-1.5 font-bold text-xs text-amber-700 dark:text-amber-300">
+                                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                                  <span>Cảnh báo: Mô hình không hỗ trợ nhận dạng giọng nói!</span>
+                                </div>
+                                <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
+                                  {testResult.asr_message || `Mô hình '${editingProfile.model}' không hỗ trợ endpoint /v1/audio/transcriptions.`}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingProfile({ ...editingProfile, can_asr: false })}
+                                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded text-[11px] font-semibold transition shadow-sm"
+                                >
+                                  Bỏ chọn 'Nhận dạng giọng nói (ASR)' cho mô hình này
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Discovered models on gateway */}
+                        {!testResult.loading && testResult.discovered_models && testResult.discovered_models.length > 0 && (
+                          <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                            <p className="text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                              Các mô hình tìm thấy trên máy chủ ({testResult.discovered_models.length} model):
+                            </p>
+                            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                              {testResult.discovered_models.map((m) => (
+                                <button
+                                  key={m}
+                                  type="button"
+                                  onClick={() => setEditingProfile({ ...editingProfile, model: m })}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
+                                    editingProfile.model === m
+                                      ? "bg-indigo-600 text-white border-indigo-600 font-bold"
+                                      : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:border-indigo-400"
+                                  }`}
+                                  title={`Bấm để chọn model: ${m}`}
+                                >
+                                  {m}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pt-2">
                       <button
                         type="button"
+                        disabled={testResult?.loading}
                         onClick={() => handleTestConnection(editingProfile)}
-                        className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold transition"
+                        className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold transition"
                       >
-                        <Zap className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Thử kết nối (Ping test)</span>
+                        {testResult?.loading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                        ) : (
+                          <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        )}
+                        <span>{testResult?.loading ? "Đang thử kết nối..." : "Thử kết nối (Ping test)"}</span>
                       </button>
 
                       <div className="flex items-center space-x-2">
                         <button
                           type="button"
-                          onClick={() => setEditingProfile(null)}
+                          onClick={() => {
+                            setEditingProfile(null);
+                            setTestResult(null);
+                          }}
                           className="px-4 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
                         >
                           Hủy
@@ -667,7 +768,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         Bấm "Thử kết nối" để đo độ trễ và kiểm tra model có phản hồi hay không.
                       </p>
                       <button
-                        onClick={() =>
+                        onClick={() => {
                           setEditingProfile({
                             name: "",
                             provider_type: "openai_compat",
@@ -676,8 +777,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             can_asr: false,
                             can_translate: true,
                             proxy_mode: "never",
-                          })
-                        }
+                          });
+                          setTestResult(null);
+                        }}
                         className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-md transition"
                       >
                         <Plus className="w-3.5 h-3.5" />
@@ -715,7 +817,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                           <div className="flex items-center space-x-1">
                             <button
-                              onClick={() => setEditingProfile(p)}
+                              onClick={() => {
+                                setEditingProfile(p);
+                                setTestResult(null);
+                              }}
                               className="p-1.5 text-slate-400 hover:text-slate-800 dark:hover:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition"
                             >
                               <Edit2 className="w-4 h-4" />

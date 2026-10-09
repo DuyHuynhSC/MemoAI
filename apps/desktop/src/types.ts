@@ -109,9 +109,24 @@ export interface NetworkTestResult {
 }
 
 
+export interface ProfileTestResult {
+  profileId?: number;
+  success: boolean;
+  loading?: boolean;
+  latency_ms?: number;
+  message: string;
+  chat_ok?: boolean;
+  chat_message?: string;
+  asr_tested?: boolean;
+  asr_supported?: boolean;
+  asr_message?: string;
+  discovered_models?: string[];
+}
+
 export type AppTheme = "light" | "dark";
 
 export interface SubtitleSettings {
   jaFontSize: number;
   viFontSize: number;
 }
+

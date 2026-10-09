@@ -171,6 +171,8 @@ class TestProfileRequest(BaseModel):
     base_url: Optional[str] = None
     model: str
     proxy_mode: Optional[str] = "auto"
+    can_asr: Optional[bool] = False
+    can_translate: Optional[bool] = True
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -253,7 +255,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 asr_profile = session.exec(
                     select(AIProfile)
                     .where(AIProfile.can_asr == True)
-                    .order_by(AIProfile.provider_type == "gemini", AIProfile.id)
+                    .order_by((AIProfile.provider_type == "gemini").desc(), AIProfile.id)
                 ).first()
 
             if asr_profile:
@@ -309,7 +311,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 mt_profile = session.exec(
                     select(AIProfile)
                     .where(AIProfile.can_translate == True)
-                    .order_by(AIProfile.provider_type == "gemini", AIProfile.id)
+                    .order_by((AIProfile.provider_type == "gemini").desc(), AIProfile.id)
                 ).first()
 
             if mt_profile:
@@ -582,7 +584,11 @@ def delete_profile(profile_id: int, session: Session = Depends(get_session)):
 
 @app.post("/api/settings/profiles/test")
 def test_profile(req: TestProfileRequest):
-    """Test connection to an AI provider profile and report latency."""
+    """Test connection to an AI provider profile and report latency, ASR capability and available models."""
+    import time
+    import io
+    import wave
+
     t0 = time.time()
     try:
         if req.provider_type == "gemini":
@@ -590,7 +596,12 @@ def test_profile(req: TestProfileRequest):
             from google.genai import types
             g_key = req.api_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
             if not g_key:
-                return {"success": False, "message": "Chưa có Gemini API Key."}
+                return {
+                    "success": False,
+                    "message": "Chưa có Gemini API Key. Vui lòng nhập API Key từ Google AI Studio.",
+                    "chat_ok": False,
+                    "asr_supported": False,
+                }
 
             verify = get_ssl_verify()
             proxy = get_proxy_url()
@@ -602,19 +613,62 @@ def test_profile(req: TestProfileRequest):
             http_options = types.HttpOptions(client_args=client_args) if client_args else None
             client = genai.Client(api_key=g_key, http_options=http_options)
 
-            res = client.models.generate_content(
-                model=req.model,
-                contents="Ping. Say OK",
-                config=types.GenerateContentConfig(
-                    max_output_tokens=10,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+            # 1. Chat completion test
+            chat_ok = False
+            chat_msg = ""
+            try:
+                res = client.models.generate_content(
+                    model=req.model,
+                    contents="Ping. Say OK",
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=10,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+                    )
                 )
-            )
+                chat_ok = True
+                chat_msg = f"Phản hồi: '{(res.text or 'OK').strip()}'"
+            except Exception as ce:
+                chat_msg = f"Lỗi chat: {str(ce)}"
+
+            # 2. ASR audio test if can_asr is requested
+            asr_tested = bool(req.can_asr)
+            asr_supported = False
+            asr_msg = ""
+            if req.can_asr:
+                try:
+                    wav_buffer = io.BytesIO()
+                    with wave.open(wav_buffer, "wb") as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(16000)
+                        wf.writeframes(b"\x00\x00" * 1600)  # 0.1s silence
+                    audio_part = types.Part.from_bytes(data=wav_buffer.getvalue(), mime_type="audio/wav")
+                    _ = client.models.generate_content(
+                        model=req.model,
+                        contents=[audio_part, "Transcribe this audio or reply EMPTY if silent."],
+                        config=types.GenerateContentConfig(
+                            max_output_tokens=10,
+                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+                        )
+                    )
+                    asr_supported = True
+                    asr_msg = f"Mô hình Gemini '{req.model}' hỗ trợ nhận dạng âm thanh (Multimodal Audio)."
+                except Exception as ae:
+                    asr_supported = False
+                    asr_msg = f"Mô hình Gemini '{req.model}' gặp lỗi khi nhận dạng âm thanh: {str(ae)}"
+
             elapsed = int((time.time() - t0) * 1000)
+            overall_success = chat_ok or asr_supported
             return {
-                "success": True,
+                "success": overall_success,
                 "latency_ms": elapsed,
                 "message": f"Kết nối Gemini thành công! (Mô hình {req.model}, độ trễ {elapsed}ms)",
+                "chat_ok": chat_ok,
+                "chat_message": chat_msg,
+                "asr_tested": asr_tested,
+                "asr_supported": asr_supported,
+                "asr_message": asr_msg,
+                "discovered_models": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"],
             }
         else:
             from openai import OpenAI
@@ -624,20 +678,94 @@ def test_profile(req: TestProfileRequest):
                 api_key=req.api_key or "dummy_key",
                 http_client=get_httpx_client(target_url=base_url, proxy_mode=req.proxy_mode),
             )
-            res = client.chat.completions.create(
-                model=req.model,
-                messages=[{"role": "user", "content": "Ping. Say OK"}],
-                max_tokens=10,
-            )
+
+            # Discover models if supported by the server
+            discovered_models = []
+            try:
+                m_list = client.models.list()
+                if hasattr(m_list, "data"):
+                    discovered_models = [m.id for m in m_list.data if hasattr(m, "id")]
+            except Exception:
+                pass
+
+            # 1. Chat completion test
+            chat_ok = False
+            chat_msg = ""
+            try:
+                res = client.chat.completions.create(
+                    model=req.model,
+                    messages=[{"role": "user", "content": "Ping. Say OK"}],
+                    max_tokens=10,
+                )
+                chat_ok = True
+                reply = res.choices[0].message.content or "OK"
+                chat_msg = f"Phản hồi: '{reply.strip()}'"
+            except Exception as ce:
+                chat_msg = f"Lỗi Chat/Completions: {str(ce)}"
+
+            # 2. ASR audio test if can_asr is requested
+            asr_tested = bool(req.can_asr)
+            asr_supported = False
+            asr_msg = ""
+            if req.can_asr:
+                wav_buffer = io.BytesIO()
+                with wave.open(wav_buffer, "wb") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(16000)
+                    wf.writeframes(b"\x00\x00" * 1600)
+                wav_buffer.seek(0)
+                wav_buffer.name = "ping.wav"
+                try:
+                    asr_res = client.audio.transcriptions.create(
+                        file=wav_buffer,
+                        model=req.model,
+                    )
+                    asr_supported = True
+                    asr_msg = f"Mô hình '{req.model}' hỗ trợ nhận dạng giọng nói (/v1/audio/transcriptions) thành công!"
+                except Exception as ae:
+                    asr_supported = False
+                    ae_str = str(ae)
+                    if "404" in ae_str or "not found" in ae_str.lower():
+                        asr_msg = f"Cổng máy chủ không hỗ trợ endpoint '/v1/audio/transcriptions' (404 Not Found). Máy chủ này chỉ dùng cho Chat/Dịch thuật."
+                    elif "model" in ae_str.lower() and ("support" in ae_str.lower() or "not exist" in ae_str.lower() or "audio" in ae_str.lower()):
+                        asr_msg = f"Mô hình '{req.model}' không hỗ trợ xử lý âm thanh. Cần mô hình Whisper (như whisper-large-v3, whisper-1)."
+                    else:
+                        asr_msg = f"Lỗi kiểm tra ASR (/v1/audio/transcriptions): {ae_str}"
+
             elapsed = int((time.time() - t0) * 1000)
-            reply = res.choices[0].message.content or "OK"
+            overall_success = chat_ok or asr_supported
+
+            summary_parts = []
+            if chat_ok:
+                summary_parts.append(f"Chat/Dịch: OK ({elapsed}ms)")
+            else:
+                summary_parts.append(f"Chat/Dịch: Lỗi")
+
+            if asr_tested:
+                if asr_supported:
+                    summary_parts.append("ASR: Hỗ trợ")
+                else:
+                    summary_parts.append("ASR: Không hỗ trợ")
+
             return {
-                "success": True,
+                "success": overall_success,
                 "latency_ms": elapsed,
-                "message": f"Kết nối Server thành công! (Mô hình {req.model}, phản hồi: '{reply.strip()}', độ trễ {elapsed}ms)",
+                "message": f"Kiểm tra kết nối ({', '.join(summary_parts)})",
+                "chat_ok": chat_ok,
+                "chat_message": chat_msg,
+                "asr_tested": asr_tested,
+                "asr_supported": asr_supported,
+                "asr_message": asr_msg,
+                "discovered_models": discovered_models,
             }
     except Exception as e:
-        return {"success": False, "message": f"Lỗi kết nối: {str(e)}"}
+        return {
+            "success": False,
+            "message": f"Lỗi kết nối: {str(e)}",
+            "chat_ok": False,
+            "asr_supported": False,
+        }
 
 
 # ==================== PROJECTS ====================
