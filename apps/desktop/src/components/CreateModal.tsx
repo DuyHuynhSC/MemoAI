@@ -31,16 +31,35 @@ export const CreateModal: React.FC<CreateModalProps> = ({
       fetchSettings()
         .then((data) => {
           setProfiles(data.profiles);
-          if (data.settings.default_asr_profile_id) {
+          const asrList = data.profiles.filter((p) => p.can_asr);
+          const mtList = data.profiles.filter((p) => p.can_translate);
+
+          // 1. Resolve default ASR profile: MUST exist in asrList!
+          if (
+            data.settings.default_asr_profile_id &&
+            asrList.some((p) => p.id === data.settings.default_asr_profile_id)
+          ) {
             setSelectedAsrProfileId(data.settings.default_asr_profile_id);
-          } else if (data.profiles.length > 0) {
-            setSelectedAsrProfileId(data.profiles[0].id);
+          } else if (asrList.length > 0) {
+            const geminiProfile = asrList.find((p) => p.provider_type === "gemini");
+            setSelectedAsrProfileId(geminiProfile ? geminiProfile.id : asrList[0].id);
+          } else {
+            setSelectedAsrProfileId(undefined);
           }
-          if (data.settings.default_mt_profile_id) {
+
+          // 2. Resolve default MT profile: MUST exist in mtList!
+          if (
+            data.settings.default_mt_profile_id &&
+            mtList.some((p) => p.id === data.settings.default_mt_profile_id)
+          ) {
             setSelectedMtProfileId(data.settings.default_mt_profile_id);
-          } else if (data.profiles.length > 0) {
-            setSelectedMtProfileId(data.profiles[0].id);
+          } else if (mtList.length > 0) {
+            const geminiProfile = mtList.find((p) => p.provider_type === "gemini");
+            setSelectedMtProfileId(geminiProfile ? geminiProfile.id : mtList[0].id);
+          } else {
+            setSelectedMtProfileId(undefined);
           }
+
           if (data.settings.default_translation_mode) {
             setMode(data.settings.default_translation_mode);
           }
@@ -74,13 +93,18 @@ export const CreateModal: React.FC<CreateModalProps> = ({
     setLoading(true);
     setError(null);
     try {
+      const asrObj = profiles.find((p) => p.id === selectedAsrProfileId);
+      const mtObj = profiles.find((p) => p.id === selectedMtProfileId);
+
       const project = await createProject({
         url_or_path: urlOrPath.trim(),
         title: title.trim() || undefined,
         source_lang: "ja",
         target_lang: "vi",
         asr_profile_id: selectedAsrProfileId,
+        asr_provider: asrObj?.provider_type || "gemini",
         mt_profile_id: selectedMtProfileId,
+        mt_provider: mtObj?.provider_type || "gemini",
         mode: mode,
       });
       setTitle("");
@@ -168,15 +192,22 @@ export const CreateModal: React.FC<CreateModalProps> = ({
                 </label>
               </div>
               <select
-                value={selectedAsrProfileId || ""}
-                onChange={(e) => setSelectedAsrProfileId(parseInt(e.target.value))}
+                value={selectedAsrProfileId ?? ""}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setSelectedAsrProfileId(isNaN(val) ? undefined : val);
+                }}
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
               >
-                {asrOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.model})
-                  </option>
-                ))}
+                {asrOptions.length === 0 ? (
+                  <option value="">Không có mô hình ASR khả dụng</option>
+                ) : (
+                  asrOptions.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.model})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -187,15 +218,22 @@ export const CreateModal: React.FC<CreateModalProps> = ({
                 </label>
               </div>
               <select
-                value={selectedMtProfileId || ""}
-                onChange={(e) => setSelectedMtProfileId(parseInt(e.target.value))}
+                value={selectedMtProfileId ?? ""}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setSelectedMtProfileId(isNaN(val) ? undefined : val);
+                }}
                 className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
               >
-                {mtOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.model})
-                  </option>
-                ))}
+                {mtOptions.length === 0 ? (
+                  <option value="">Không có mô hình MT khả dụng</option>
+                ) : (
+                  mtOptions.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.model})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           </div>

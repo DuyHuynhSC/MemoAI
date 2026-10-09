@@ -80,8 +80,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setLoading(true);
     try {
       const data = await fetchSettings();
-      setSettings(data.settings);
-
+      const validAsr = data.profiles.filter((p) => p.can_asr);
+      const validMt = data.profiles.filter((p) => p.can_translate);
+      const s = { ...data.settings };
+      if (!s.default_asr_profile_id || !validAsr.some((p) => p.id === s.default_asr_profile_id)) {
+        const geminiAsr = validAsr.find((p) => p.provider_type === "gemini") || validAsr[0];
+        if (geminiAsr) s.default_asr_profile_id = geminiAsr.id;
+      }
+      if (!s.default_mt_profile_id || !validMt.some((p) => p.id === s.default_mt_profile_id)) {
+        const geminiMt = validMt.find((p) => p.provider_type === "gemini") || validMt[0];
+        if (geminiMt) s.default_mt_profile_id = geminiMt.id;
+      }
+      setSettings(s);
       setProfiles(data.profiles);
     } catch (e) {
       console.error(e);

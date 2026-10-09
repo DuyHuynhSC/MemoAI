@@ -29,6 +29,12 @@ export interface Project {
   progress: number;
   current_step: string;
   error_msg?: string;
+  asr_profile_id?: number;
+  mt_profile_id?: number;
+  asr_provider?: string;
+  mt_provider?: string;
+  asr_model?: string;
+  mt_model?: string;
   created_at: string;
 }
 

@@ -71,8 +71,15 @@ export async function fetchProjectLogs(id: number): Promise<{
   return res.json();
 }
 
-export async function retryProject(id: number): Promise<Project> {
-  const res = await fetch(`${API_BASE}/api/projects/${id}/retry`, { method: "POST" });
+export async function retryProject(
+  id: number,
+  payload?: { asr_profile_id?: number; mt_profile_id?: number }
+): Promise<Project> {
+  const res = await fetch(`${API_BASE}/api/projects/${id}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
   if (!res.ok) throw new Error("Failed to retry project");
   return res.json();
 }

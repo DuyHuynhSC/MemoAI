@@ -33,13 +33,15 @@ from memoai.services.anki import export_anki_deck
 
 # Initialize logger and tables
 setup_logging()
+logger = get_logger("memoai.server")
 init_db()
 
 
 def seed_default_profiles():
     with Session(engine) as session:
-        existing = session.exec(select(AIProfile)).first()
-        if not existing:
+        # 1. Ensure Gemini profile exists and can do ASR & Translation
+        g_profile = session.exec(select(AIProfile).where(AIProfile.provider_type == "gemini")).first()
+        if not g_profile:
             g_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
             g_profile = AIProfile(
                 name="Google Gemini Flash (Mặc định)",
@@ -52,7 +54,16 @@ def seed_default_profiles():
             session.add(g_profile)
             session.commit()
             session.refresh(g_profile)
+        else:
+            # Ensure Gemini profile has can_asr=True
+            if not g_profile.can_asr:
+                g_profile.can_asr = True
+                session.add(g_profile)
+                session.commit()
 
+        # 2. Ensure Qwen / OpenAI profile exists as secondary option
+        q_profile = session.exec(select(AIProfile).where(AIProfile.provider_type == "openai_compat")).first()
+        if not q_profile:
             q_profile = AIProfile(
                 name="Server Qwen 3.8 / Ollama Nội Bộ",
                 provider_type="openai_compat",
@@ -66,20 +77,36 @@ def seed_default_profiles():
             session.commit()
             session.refresh(q_profile)
 
-            app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
-            if not app_set:
-                app_set = AppSettings(
-                    id=1,
-                    default_asr_profile_id=g_profile.id,
-                    default_mt_profile_id=g_profile.id,
-                    default_translation_mode="learning",
-                    proxy_enabled=settings.proxy_enabled,
-                    http_proxy=settings.http_proxy,
-                    https_proxy=settings.https_proxy,
-                    no_proxy=settings.no_proxy,
-                    ca_cert_path=settings.ca_cert_path or settings.ssl_cert_file or settings.requests_ca_bundle,
-                    insecure_skip_verify=settings.insecure_skip_verify,
-                )
+        # 3. Ensure AppSettings has valid defaults pointing to valid profiles
+        app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+        if not app_set:
+            app_set = AppSettings(
+                id=1,
+                default_asr_profile_id=g_profile.id,
+                default_mt_profile_id=g_profile.id,
+                default_translation_mode="learning",
+                proxy_enabled=settings.proxy_enabled,
+                http_proxy=settings.http_proxy,
+                https_proxy=settings.https_proxy,
+                no_proxy=settings.no_proxy,
+                ca_cert_path=settings.ca_cert_path or settings.ssl_cert_file or settings.requests_ca_bundle,
+                insecure_skip_verify=settings.insecure_skip_verify,
+            )
+            session.add(app_set)
+            session.commit()
+        else:
+            # Validate default_asr_profile_id: must exist and have can_asr == True
+            asr_prof = session.get(AIProfile, app_set.default_asr_profile_id) if app_set.default_asr_profile_id else None
+            if not asr_prof or not asr_prof.can_asr:
+                logger.info(f"Cập nhật default_asr_profile_id sang Gemini profile id={g_profile.id} ({g_profile.name})")
+                app_set.default_asr_profile_id = g_profile.id
+                session.add(app_set)
+                session.commit()
+
+            mt_prof = session.get(AIProfile, app_set.default_mt_profile_id) if app_set.default_mt_profile_id else None
+            if not mt_prof or not mt_prof.can_translate:
+                logger.info(f"Cập nhật default_mt_profile_id sang Gemini profile id={g_profile.id} ({g_profile.name})")
+                app_set.default_mt_profile_id = g_profile.id
                 session.add(app_set)
                 session.commit()
 
@@ -120,6 +147,11 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateProjectRequest(BaseModel):
     title: Optional[str] = None
+
+
+class RetryProjectRequest(BaseModel):
+    asr_profile_id: Optional[int] = None
+    mt_profile_id: Optional[int] = None
 
 
 class AddVocabRequest(BaseModel):
@@ -195,39 +227,127 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
         try:
             update_progress("Đang khởi tạo pipeline...", 0.05)
 
-            # 1. Resolve ASR Provider
-            asr_profile = session.get(AIProfile, req.asr_profile_id) if req.asr_profile_id else None
-            if asr_profile:
-                logger.info(f"Sử dụng AI Profile cho ASR: id={asr_profile.id}, tên='{asr_profile.name}', loại={asr_profile.provider_type}, model={asr_profile.model}")
-                if asr_profile.provider_type == "gemini":
-                    asr = GeminiASR(api_key=asr_profile.api_key or settings.gemini_api_key, model=asr_profile.model)
-                else:
-                    asr = OpenAICompatASR(base_url=asr_profile.base_url, api_key=asr_profile.api_key, model=asr_profile.model)
-            else:
-                g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
-                if req.asr_provider == "gemini":
-                    logger.info(f"Sử dụng cấu hình mặc định cho ASR: Gemini ({settings.gemini_asr_model})")
-                    asr = GeminiASR(api_key=g_key, model=settings.gemini_asr_model)
-                else:
-                    logger.info(f"Sử dụng cấu hình mặc định cho ASR: OpenAI Compat ({settings.openai_asr_model})")
-                    asr = OpenAICompatASR(base_url=req.openai_base_url, api_key=req.openai_key, model=settings.openai_asr_model)
+            # 1. Resolve ASR Provider (Strictly check can_asr capability)
+            asr_profile = None
+            if req.asr_profile_id:
+                cand = session.get(AIProfile, req.asr_profile_id)
+                if cand:
+                    if cand.can_asr:
+                        asr_profile = cand
+                    else:
+                        logger.warning(
+                            f"[Pipeline ASR] AI Profile id={cand.id} ('{cand.name}') KHÔNG có tính năng nhận dạng giọng nói (can_asr=False). Bỏ qua profile này."
+                        )
 
-            # 2. Resolve MT Provider
-            mt_profile = session.get(AIProfile, req.mt_profile_id) if req.mt_profile_id else None
-            if mt_profile:
-                logger.info(f"Sử dụng AI Profile cho MT: id={mt_profile.id}, tên='{mt_profile.name}', loại={mt_profile.provider_type}, model={mt_profile.model}")
-                if mt_profile.provider_type == "gemini":
-                    mt = GeminiTranslator(api_key=mt_profile.api_key or settings.gemini_api_key, model=mt_profile.model)
+            # Fallback A: Default ASR Profile from Settings
+            if not asr_profile:
+                app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+                if app_set and app_set.default_asr_profile_id:
+                    cand = session.get(AIProfile, app_set.default_asr_profile_id)
+                    if cand and cand.can_asr:
+                        asr_profile = cand
+
+            # Fallback B: Any DB Profile with can_asr=True (Prioritize Gemini)
+            if not asr_profile:
+                asr_profile = session.exec(
+                    select(AIProfile)
+                    .where(AIProfile.can_asr == True)
+                    .order_by(AIProfile.provider_type == "gemini", AIProfile.id)
+                ).first()
+
+            if asr_profile:
+                logger.info(
+                    f"--> [Pipeline ASR] Sử dụng AI Profile: id={asr_profile.id}, "
+                    f"tên='{asr_profile.name}', loại='{asr_profile.provider_type}', model='{asr_profile.model}'"
+                )
+                actual_asr_pid = asr_profile.id
+                actual_asr_provider = asr_profile.provider_type
+                actual_asr_model = asr_profile.model
+                if asr_profile.provider_type == "gemini":
+                    asr = GeminiASR(
+                        api_key=asr_profile.api_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY"),
+                        model=asr_profile.model,
+                    )
                 else:
-                    mt = OpenAICompatTranslator(base_url=mt_profile.base_url, api_key=mt_profile.api_key, model=mt_profile.model)
+                    asr = OpenAICompatASR(
+                        base_url=asr_profile.base_url or settings.openai_base_url,
+                        api_key=asr_profile.api_key or settings.openai_api_key or "dummy_key",
+                        model=asr_profile.model,
+                    )
             else:
+                actual_asr_pid = None
+                actual_asr_provider = "gemini"
+                actual_asr_model = settings.gemini_asr_model or "gemini-2.5-flash"
+                logger.info(f"--> [Pipeline ASR] Không tìm thấy Profile ASR hợp lệ, dùng cấu hình Gemini mặc định: {actual_asr_model}")
                 g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
-                if req.mt_provider == "gemini":
-                    logger.info(f"Sử dụng cấu hình mặc định cho MT: Gemini ({settings.gemini_mt_model})")
-                    mt = GeminiTranslator(api_key=g_key, model=settings.gemini_mt_model)
+                asr = GeminiASR(api_key=g_key, model=actual_asr_model)
+
+            # 2. Resolve MT Provider (Strictly check can_translate capability)
+            mt_profile = None
+            if req.mt_profile_id:
+                cand = session.get(AIProfile, req.mt_profile_id)
+                if cand:
+                    if cand.can_translate:
+                        mt_profile = cand
+                    else:
+                        logger.warning(
+                            f"[Pipeline MT] AI Profile id={cand.id} ('{cand.name}') KHÔNG có tính năng dịch thuật (can_translate=False). Bỏ qua profile này."
+                        )
+
+            # Fallback A: Default MT Profile from Settings
+            if not mt_profile:
+                app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+                if app_set and app_set.default_mt_profile_id:
+                    cand = session.get(AIProfile, app_set.default_mt_profile_id)
+                    if cand and cand.can_translate:
+                        mt_profile = cand
+
+            # Fallback B: Any DB Profile with can_translate=True (Prioritize Gemini)
+            if not mt_profile:
+                mt_profile = session.exec(
+                    select(AIProfile)
+                    .where(AIProfile.can_translate == True)
+                    .order_by(AIProfile.provider_type == "gemini", AIProfile.id)
+                ).first()
+
+            if mt_profile:
+                logger.info(
+                    f"--> [Pipeline MT] Sử dụng AI Profile: id={mt_profile.id}, "
+                    f"tên='{mt_profile.name}', loại='{mt_profile.provider_type}', model='{mt_profile.model}'"
+                )
+                actual_mt_pid = mt_profile.id
+                actual_mt_provider = mt_profile.provider_type
+                actual_mt_model = mt_profile.model
+                if mt_profile.provider_type == "gemini":
+                    mt = GeminiTranslator(
+                        api_key=mt_profile.api_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY"),
+                        model=mt_profile.model,
+                    )
                 else:
-                    logger.info(f"Sử dụng cấu hình mặc định cho MT: OpenAI Compat ({req.openai_model or settings.openai_mt_model})")
-                    mt = OpenAICompatTranslator(base_url=req.openai_base_url, api_key=req.openai_key, model=req.openai_model or settings.openai_mt_model)
+                    mt = OpenAICompatTranslator(
+                        base_url=mt_profile.base_url or settings.openai_base_url,
+                        api_key=mt_profile.api_key or settings.openai_api_key or "dummy_key",
+                        model=mt_profile.model,
+                    )
+            else:
+                actual_mt_pid = None
+                actual_mt_provider = "gemini"
+                actual_mt_model = settings.gemini_mt_model or "gemini-2.5-flash"
+                logger.info(f"--> [Pipeline MT] Không tìm thấy Profile MT hợp lệ, dùng cấu hình Gemini mặc định: {actual_mt_model}")
+                g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
+                mt = GeminiTranslator(api_key=g_key, model=actual_mt_model)
+
+            # Update project record with active AI providers/models
+            p = session.get(Project, project_id)
+            if p:
+                p.asr_profile_id = actual_asr_pid
+                p.asr_provider = actual_asr_provider
+                p.asr_model = actual_asr_model
+                p.mt_profile_id = actual_mt_pid
+                p.mt_provider = actual_mt_provider
+                p.mt_model = actual_mt_model
+                session.add(p)
+                session.commit()
 
             runner = PipelineRunner(
                 asr_provider=asr,
@@ -536,6 +656,10 @@ def create_project(req: CreateProjectRequest, background_tasks: BackgroundTasks,
         source_uri=req.url_or_path,
         source_lang=req.source_lang,
         target_lang=req.target_lang,
+        asr_profile_id=req.asr_profile_id,
+        mt_profile_id=req.mt_profile_id,
+        asr_provider=req.asr_provider,
+        mt_provider=req.mt_provider,
         status="processing",
         progress=0.05,
         current_step="Bắt đầu xử lý...",
@@ -627,26 +751,36 @@ def get_project_logs(project_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/api/projects/{project_id}/retry")
-def retry_project(project_id: int, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+def retry_project(
+    project_id: int,
+    background_tasks: BackgroundTasks,
+    req_body: Optional[RetryProjectRequest] = None,
+    session: Session = Depends(get_session),
+):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
     app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
-    asr_pid = app_set.default_asr_profile_id if app_set else None
-    mt_pid = app_set.default_mt_profile_id if app_set else None
+    default_asr_pid = app_set.default_asr_profile_id if app_set else None
+    default_mt_pid = app_set.default_mt_profile_id if app_set else None
     mode = app_set.default_translation_mode if app_set else "learning"
+
+    chosen_asr_pid = (req_body.asr_profile_id if req_body and req_body.asr_profile_id else None) or project.asr_profile_id or default_asr_pid
+    chosen_mt_pid = (req_body.mt_profile_id if req_body and req_body.mt_profile_id else None) or project.mt_profile_id or default_mt_pid
 
     req = CreateProjectRequest(
         url_or_path=project.source_uri,
         title=project.title,
         source_lang=project.source_lang,
         target_lang=project.target_lang,
-        asr_profile_id=asr_pid,
-        mt_profile_id=mt_pid,
+        asr_profile_id=chosen_asr_pid,
+        mt_profile_id=chosen_mt_pid,
         mode=mode,
     )
 
+    project.asr_profile_id = chosen_asr_pid
+    project.mt_profile_id = chosen_mt_pid
     project.status = "processing"
     project.progress = 0.05
     project.current_step = "Bắt đầu thử lại xử lý..."

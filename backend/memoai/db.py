@@ -28,6 +28,22 @@ def init_db():
             for col_name, col_def in columns_to_add.items():
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE app_settings ADD COLUMN {col_name} {col_def}"))
+
+            # Auto-migrate Projects columns for existing SQLite databases
+            cursor_p = conn.execute(text("PRAGMA table_info(projects)"))
+            existing_p_cols = {row[1] for row in cursor_p.fetchall()}
+            p_cols_to_add = {
+                "asr_profile_id": "INTEGER DEFAULT NULL",
+                "mt_profile_id": "INTEGER DEFAULT NULL",
+                "asr_provider": "VARCHAR DEFAULT NULL",
+                "mt_provider": "VARCHAR DEFAULT NULL",
+                "asr_model": "VARCHAR DEFAULT NULL",
+                "mt_model": "VARCHAR DEFAULT NULL",
+            }
+            for col_name, col_def in p_cols_to_add.items():
+                if col_name not in existing_p_cols:
+                    conn.execute(text(f"ALTER TABLE projects ADD COLUMN {col_name} {col_def}"))
+
             conn.commit()
         except Exception:
             pass

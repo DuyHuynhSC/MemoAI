@@ -405,9 +405,16 @@ export const App: React.FC = () => {
                   >
                     <div>
                       <div className="flex items-start justify-between">
-                        <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700">
-                          {p.source_lang.toUpperCase()} ➔ {p.target_lang.toUpperCase()}
-                        </span>
+                        <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                          <span className="px-2.5 py-1 text-[11px] font-bold rounded-full bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700">
+                            {p.source_lang.toUpperCase()} ➔ {p.target_lang.toUpperCase()}
+                          </span>
+                          {p.asr_model && (
+                            <span className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                              {p.asr_provider === "gemini" ? "Gemini" : "OpenAI"}: {p.asr_model}
+                            </span>
+                          )}
+                        </div>
 
                         <div className="flex items-center space-x-1">
                           <button

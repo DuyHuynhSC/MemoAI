@@ -19,6 +19,12 @@ class Project(SQLModel, table=True):
     progress: float = Field(default=0.0)
     current_step: str = Field(default="")
     error_msg: Optional[str] = None
+    asr_profile_id: Optional[int] = Field(default=None)
+    mt_profile_id: Optional[int] = Field(default=None)
+    asr_provider: Optional[str] = Field(default=None)
+    mt_provider: Optional[str] = Field(default=None)
+    asr_model: Optional[str] = Field(default=None)
+    mt_model: Optional[str] = Field(default=None)
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
