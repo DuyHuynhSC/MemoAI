@@ -14,15 +14,18 @@ import {
   Pencil,
   Check,
   X,
+  RefreshCw,
+  FileText,
 } from "lucide-react";
 import type { Project, Segment, WordDefinition, AppTheme } from "./types";
-import { fetchProjects, fetchProject, deleteProject, updateProject, lookupWord } from "./api/client";
+import { fetchProjects, fetchProject, deleteProject, updateProject, lookupWord, retryProject } from "./api/client";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { TranscriptList } from "./components/TranscriptList";
 import { WordPopup } from "./components/WordPopup";
 import { CreateModal } from "./components/CreateModal";
 import { VocabModal } from "./components/VocabModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { ErrorLogModal } from "./components/ErrorLogModal";
 
 export const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -72,6 +75,8 @@ export const App: React.FC = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isVocabOpen, setIsVocabOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [errorModalProject, setErrorModalProject] = useState<Project | null>(null);
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
 
   // Word Popup
   const [wordDef, setWordDef] = useState<WordDefinition | null>(null);
@@ -382,10 +387,19 @@ export const App: React.FC = () => {
                 {projects.map((p) => (
                   <div
                     key={p.id}
-                    onClick={() => p.status === "completed" && setSelectedProjectId(p.id)}
+                    onClick={() => {
+                      if (p.status === "completed") {
+                        setSelectedProjectId(p.id);
+                      } else if (p.status === "error") {
+                        setErrorModalProject(p);
+                        setIsErrorModalOpen(true);
+                      }
+                    }}
                     className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 flex flex-col justify-between transition relative overflow-hidden group shadow-sm dark:shadow-none ${
                       p.status === "completed"
                         ? "border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:shadow-xl cursor-pointer"
+                        : p.status === "error"
+                        ? "border-red-200 dark:border-red-900/60 hover:border-red-400 cursor-pointer"
                         : "border-slate-200 dark:border-slate-800 opacity-90"
                     }`}
                   >
@@ -478,9 +492,42 @@ export const App: React.FC = () => {
                           </span>
                         </div>
                       ) : (
-                        <div className="flex items-center space-x-1.5 text-xs text-red-600 dark:text-red-400">
-                          <AlertCircle className="w-4 h-4" />
-                          <span className="truncate">{p.error_msg || "Lỗi xử lý"}</span>
+                        <div className="space-y-2">
+                          <div className="flex items-start space-x-1.5 text-xs text-red-600 dark:text-red-400">
+                            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                            <span className="line-clamp-2 font-medium">
+                              {p.current_step?.startsWith("Lỗi:") ? p.current_step : (p.error_msg?.split("\n")[0] || "Lỗi xử lý")}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2 pt-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setErrorModalProject(p);
+                                setIsErrorModalOpen(true);
+                              }}
+                              className="flex-1 py-1.5 px-2 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1 transition"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Xem chi tiết lỗi</span>
+                            </button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  await retryProject(p.id);
+                                  loadProjects();
+                                } catch (err: any) {
+                                  alert(`Lỗi khi thử lại: ${err.message}`);
+                                }
+                              }}
+                              title="Thử lại"
+                              className="py-1.5 px-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1 transition"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              <span>Thử lại</span>
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -521,6 +568,13 @@ export const App: React.FC = () => {
         onClose={() => setWordDef(null)}
         contextSentence={activeWordContext?.text}
         contextTranslation={activeWordContext?.translation}
+      />
+
+      <ErrorLogModal
+        isOpen={isErrorModalOpen}
+        project={errorModalProject}
+        onClose={() => setIsErrorModalOpen(false)}
+        onRetried={() => loadProjects()}
       />
     </div>
   );

@@ -31,7 +31,6 @@ def get_yt_dlp_options(extra_opts: dict | None = None) -> dict:
         "extractor_retries": 5,
         "retry_sleep": 2,
         "socket_timeout": 30,
-        "compat_opts": ["no-certifi"],
     }
 
     if app_set.proxy_enabled and (app_set.https_proxy or app_set.http_proxy):
@@ -58,6 +57,9 @@ def download_media(
     Returns path to downloaded file and info dict.
     """
     import time
+    from memoai.logger import get_logger
+    logger = get_logger("memoai.media")
+
     output_dir.mkdir(parents=True, exist_ok=True)
     out_tmpl = str(output_dir / "%(id)s.%(ext)s")
 
@@ -82,6 +84,7 @@ def download_media(
             extra["no_check_certificate"] = True
 
         ydl_opts = get_yt_dlp_options(extra)
+        logger.info(f"Đang tải media (lần {attempt}/{max_retries}): url={url}, format={fmt}")
 
         try:
             if attempt > 1 and progress_cb:
@@ -93,19 +96,24 @@ def download_media(
                 filename = ydl.prepare_filename(info)
                 downloaded_path = Path(filename)
                 if downloaded_path.exists():
+                    logger.info(f"Tải media thành công: {downloaded_path} ({downloaded_path.stat().st_size} bytes)")
                     return downloaded_path, info
 
                 # Check if merged or alternative extension exists
                 for f in output_dir.glob(f"{info.get('id', '')}.*"):
                     if f.is_file() and f.suffix not in [".part", ".ytdl"]:
+                        logger.info(f"Tải media thành công (merged): {f}")
                         return f, info
 
                 return downloaded_path, info
         except Exception as e:
             last_error = e
+            logger.warning(f"Lỗi tải media lần {attempt}/{max_retries}: {e}")
             time.sleep(1)
 
-    raise last_error or RuntimeError(f"Tải media thất bại sau {max_retries} lần thử: {url}")
+    err_detail = f"Tải media thất bại sau {max_retries} lần thử: {url}. Chi tiết lỗi: {last_error}"
+    logger.error(err_detail)
+    raise RuntimeError(err_detail) from last_error
 
 
 
@@ -119,8 +127,14 @@ def get_media_duration(file_path: Path) -> float:
         "-of", "default=noprint_wrappers=1:nokey=1",
         str(file_path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return float(result.stdout.strip())
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(result.stdout.strip())
+    except subprocess.CalledProcessError as e:
+        err = (e.stderr or e.stdout or "").strip()
+        raise RuntimeError(f"Lỗi ffprobe khi đọc thời lượng media: {err}") from e
+    except FileNotFoundError:
+        raise RuntimeError("Không tìm thấy công cụ ffprobe. Vui lòng cài đặt ffmpeg trên máy tính.")
 
 
 def extract_audio(
@@ -130,7 +144,14 @@ def extract_audio(
     channels: int = 1
 ) -> Path:
     """Extract audio from video file to 16kHz mono WAV using ffmpeg."""
-    ffmpeg_cmd = shutil.which("ffmpeg") or "ffmpeg"
+    from memoai.logger import get_logger
+    logger = get_logger("memoai.media")
+
+    ffmpeg_cmd = shutil.which("ffmpeg")
+    if not ffmpeg_cmd:
+        raise RuntimeError(
+            "Không tìm thấy công cụ ffmpeg trên máy tính. Vui lòng cài đặt ffmpeg hoặc thêm đường dẫn ffmpeg vào biến môi trường PATH."
+        )
 
     if output_path is None:
         output_path = video_path.with_suffix(".wav")
@@ -146,5 +167,15 @@ def extract_audio(
         str(output_path)
     ]
 
-    subprocess.run(cmd, capture_output=True, check=True)
-    return output_path
+    logger.info(f"Chạy ffmpeg trích xuất âm thanh: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        logger.info(f"Trích xuất âm thanh thành công: {output_path} ({output_path.stat().st_size} bytes)")
+        return output_path
+    except subprocess.CalledProcessError as e:
+        err_msg = (e.stderr or e.stdout or "").strip()
+        logger.error(f"Lỗi ffmpeg trích xuất âm thanh (exit code {e.returncode}): {err_msg}")
+        raise RuntimeError(f"Lỗi ffmpeg khi trích xuất âm thanh (mã {e.returncode}): {err_msg}") from e
+    except Exception as e:
+        logger.error(f"Lỗi bất thường khi trích xuất âm thanh: {e}")
+        raise

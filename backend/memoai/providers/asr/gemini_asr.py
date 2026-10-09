@@ -47,6 +47,9 @@ class GeminiASR(ASRProvider):
 
 
     def _call_generate_with_retry(self, uploaded_file, prompt: str) -> str:
+        from memoai.logger import get_logger
+        logger = get_logger("memoai.asr.gemini")
+
         models_to_try = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
         last_error = None
 
@@ -58,6 +61,7 @@ class GeminiASR(ASRProvider):
         )
 
         for model_name in models_to_try:
+            logger.info(f"Gửi yêu cầu nhận dạng âm thanh tới Gemini model: {model_name}")
             for attempt in range(1, 4):
                 try:
                     response = self.client.models.generate_content(
@@ -65,10 +69,12 @@ class GeminiASR(ASRProvider):
                         contents=[uploaded_file, prompt],
                         config=config,
                     )
+                    logger.info(f"Gemini ASR ({model_name}) phản hồi thành công (attempt {attempt})")
                     return response.text or "{}"
                 except (errors.APIError, Exception) as e:
                     err_msg = str(e)
                     last_error = e
+                    logger.warning(f"Lỗi Gemini ASR (model={model_name}, attempt={attempt}/3): {e}")
                     # Check if 503 (high demand) or 429 (rate limit)
                     is_transient = (
                         "503" in err_msg
@@ -81,24 +87,38 @@ class GeminiASR(ASRProvider):
                     )
                     if is_transient:
                         wait_sec = attempt * 3
+                        logger.info(f"Chờ {wait_sec}s rồi thử lại Gemini ASR...")
                         time.sleep(wait_sec)
                         continue
                     else:
                         # Non-transient error, don't retry this model
                         break
 
-        raise last_error or RuntimeError("Gemini ASR request failed across all candidate models.")
+        err_final = f"Nhận dạng giọng nói thất bại trên tất cả model Gemini ({', '.join(models_to_try)}): {last_error}"
+        logger.error(err_final)
+        raise RuntimeError(err_final) from last_error
 
     def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+        from memoai.logger import get_logger
+        logger = get_logger("memoai.asr.gemini")
+
+        audio_size = audio_path.stat().st_size if audio_path.exists() else 0
+        logger.info(f"Bắt đầu ASR với Gemini: audio={audio_path} ({audio_size} bytes), lang={language}")
+
         # Upload the audio file to Gemini Files API with automatic retry
         uploaded_file = None
         for up_attempt in range(1, 4):
             try:
+                logger.info(f"Đang tải audio lên Gemini Files API (attempt {up_attempt}/3)...")
                 uploaded_file = self.client.files.upload(file=str(audio_path))
+                logger.info(f"Tải audio lên Gemini thành công: {uploaded_file.name}")
                 break
             except Exception as e:
+                logger.warning(f"Lỗi tải audio lên Gemini (attempt {up_attempt}/3): {e}")
                 if up_attempt == 3:
-                    raise RuntimeError(f"Tải tệp âm thanh lên Gemini Files API thất bại sau 3 lần thử: {e}") from e
+                    err_str = f"Tải tệp âm thanh lên Gemini Files API thất bại sau 3 lần thử: {e}"
+                    logger.error(err_str)
+                    raise RuntimeError(err_str) from e
                 time.sleep(up_attempt * 2)
 
         lang_name = "Japanese" if language == "ja" else language
@@ -111,7 +131,21 @@ class GeminiASR(ASRProvider):
 
         try:
             raw_text = self._call_generate_with_retry(uploaded_file, prompt)
-            data = json.loads(raw_text)
+            clean_text = raw_text.strip()
+            if clean_text.startswith("```"):
+                lines = clean_text.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                clean_text = "\n".join(lines).strip()
+
+            try:
+                data = json.loads(clean_text)
+            except json.JSONDecodeError as jde:
+                logger.error(f"Lỗi phân tích JSON kết quả Gemini ASR: {jde}. Raw: {clean_text[:500]}")
+                raise RuntimeError(f"Lỗi phân tích cú pháp JSON từ Gemini ASR: {jde}") from jde
+
             segments_data = data.get("segments", [])
             segments: list[Segment] = []
             for item in segments_data:
@@ -120,11 +154,13 @@ class GeminiASR(ASRProvider):
                     end=float(item.get("end", 0.0)),
                     text=str(item.get("text", "")).strip()
                 ))
+            logger.info(f"Hoàn thành Gemini ASR: {len(segments)} segments được nhận diện.")
             return segments
         finally:
             # Clean up the uploaded file on Gemini server
             if uploaded_file:
                 try:
+                    logger.info(f"Xóa tệp tạm trên Gemini Files API: {uploaded_file.name}")
                     self.client.files.delete(name=uploaded_file.name)
                 except Exception:
                     pass

@@ -59,6 +59,24 @@ export async function deleteProject(id: number): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete project");
 }
 
+export async function fetchProjectLogs(id: number): Promise<{
+  project_id: number;
+  status: string;
+  current_step: string;
+  error_msg?: string;
+  logs: string;
+}> {
+  const res = await fetch(`${API_BASE}/api/projects/${id}/logs`);
+  if (!res.ok) throw new Error("Failed to fetch project logs");
+  return res.json();
+}
+
+export async function retryProject(id: number): Promise<Project> {
+  const res = await fetch(`${API_BASE}/api/projects/${id}/retry`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to retry project");
+  return res.json();
+}
+
 export async function lookupWord(q: string, context?: string): Promise<WordDefinition> {
   const params = new URLSearchParams({ q });
   if (context) params.append("context", context);

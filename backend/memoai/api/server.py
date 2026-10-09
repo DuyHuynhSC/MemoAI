@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+import traceback
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query, Request
@@ -13,6 +14,7 @@ from sqlmodel import Session, select
 from memoai.db import init_db, get_session, engine
 from memoai.models import Project, SegmentRecord, Vocab, AIProfile, AppSettings
 from memoai.config import settings
+from memoai.logger import setup_logging, get_logger, ProjectLogger, read_project_log, get_project_log_path
 from memoai.network import (
     apply_network_settings,
     test_network_connectivity,
@@ -29,7 +31,8 @@ from memoai.languages.ja import JapaneseLanguagePack
 from memoai.services.dictionary import lookup_word
 from memoai.services.anki import export_anki_deck
 
-# Initialize tables
+# Initialize logger and tables
+setup_logging()
 init_db()
 
 
@@ -167,9 +170,17 @@ class SaveCaCertRequest(BaseModel):
 
 def run_pipeline_task(project_id: int, req: CreateProjectRequest):
     """Background task to run audio extraction, ASR, translation and DB save."""
+    project_dir = settings.get_data_dir() / f"project_{project_id}"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    log_path = project_dir / "pipeline.log"
+    logger = ProjectLogger(project_id=project_id, log_file=log_path)
+
+    logger.info(f"Bắt đầu tác vụ xử lý dự án {project_id}: {req.url_or_path}")
+
     with Session(engine) as session:
         project = session.get(Project, project_id)
         if not project:
+            logger.error(f"Không tìm thấy dự án {project_id} trong cơ sở dữ liệu.")
             return
 
         def update_progress(step: str, pct: float):
@@ -187,6 +198,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
             # 1. Resolve ASR Provider
             asr_profile = session.get(AIProfile, req.asr_profile_id) if req.asr_profile_id else None
             if asr_profile:
+                logger.info(f"Sử dụng AI Profile cho ASR: id={asr_profile.id}, tên='{asr_profile.name}', loại={asr_profile.provider_type}, model={asr_profile.model}")
                 if asr_profile.provider_type == "gemini":
                     asr = GeminiASR(api_key=asr_profile.api_key or settings.gemini_api_key, model=asr_profile.model)
                 else:
@@ -194,13 +206,16 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
             else:
                 g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
                 if req.asr_provider == "gemini":
+                    logger.info(f"Sử dụng cấu hình mặc định cho ASR: Gemini ({settings.gemini_asr_model})")
                     asr = GeminiASR(api_key=g_key, model=settings.gemini_asr_model)
                 else:
+                    logger.info(f"Sử dụng cấu hình mặc định cho ASR: OpenAI Compat ({settings.openai_asr_model})")
                     asr = OpenAICompatASR(base_url=req.openai_base_url, api_key=req.openai_key, model=settings.openai_asr_model)
 
             # 2. Resolve MT Provider
             mt_profile = session.get(AIProfile, req.mt_profile_id) if req.mt_profile_id else None
             if mt_profile:
+                logger.info(f"Sử dụng AI Profile cho MT: id={mt_profile.id}, tên='{mt_profile.name}', loại={mt_profile.provider_type}, model={mt_profile.model}")
                 if mt_profile.provider_type == "gemini":
                     mt = GeminiTranslator(api_key=mt_profile.api_key or settings.gemini_api_key, model=mt_profile.model)
                 else:
@@ -208,8 +223,10 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
             else:
                 g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
                 if req.mt_provider == "gemini":
+                    logger.info(f"Sử dụng cấu hình mặc định cho MT: Gemini ({settings.gemini_mt_model})")
                     mt = GeminiTranslator(api_key=g_key, model=settings.gemini_mt_model)
                 else:
+                    logger.info(f"Sử dụng cấu hình mặc định cho MT: OpenAI Compat ({req.openai_model or settings.openai_mt_model})")
                     mt = OpenAICompatTranslator(base_url=req.openai_base_url, api_key=req.openai_key, model=req.openai_model or settings.openai_mt_model)
 
             runner = PipelineRunner(
@@ -218,10 +235,10 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 src_lang=req.source_lang,
                 tgt_lang=req.target_lang,
                 progress_cb=update_progress,
+                project_id=project_id,
             )
 
             # 3. Run Pipeline
-            project_dir = settings.get_data_dir() / f"project_{project_id}"
             out_files = runner.run(
                 input_path_or_url=req.url_or_path,
                 output_dir=project_dir,
@@ -240,6 +257,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 p.status = "completed"
                 p.progress = 1.0
                 p.current_step = "Hoàn thành!"
+                p.error_msg = None
                 session.add(p)
                 session.commit()
 
@@ -248,6 +266,7 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
             vi_srt_path = out_files.get("tgt_srt")
 
             if ja_srt_path and ja_srt_path.exists():
+                logger.info(f"Lưu phân đoạn phụ đề vào cơ sở dữ liệu: {ja_srt_path}")
                 content = ja_srt_path.read_text(encoding="utf-8")
                 vi_content = vi_srt_path.read_text(encoding="utf-8") if vi_srt_path and vi_srt_path.exists() else ""
 
@@ -287,12 +306,18 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                         )
                         session.add(seg)
                 session.commit()
+                logger.info(f"Đã lưu thành công {len(blocks)} phân đoạn vào DB.")
 
         except Exception as e:
+            tb = traceback.format_exc()
+            err_msg = str(e).strip() or type(e).__name__
+            logger.error(f"Xử lý dự án thất bại: {err_msg}", exc=e)
+
             p = session.get(Project, project_id)
             if p:
                 p.status = "error"
-                p.error_msg = str(e)
+                p.error_msg = f"{err_msg}\n\n[Traceback chi tiết]:\n{tb}"
+                p.current_step = f"Lỗi: {err_msg[:60]}"
                 session.add(p)
                 session.commit()
 
@@ -583,6 +608,54 @@ def update_project(project_id: int, req: UpdateProjectRequest, session: Session 
         session.add(project)
         session.commit()
         session.refresh(project)
+    return project
+
+
+@app.get("/api/projects/{project_id}/logs")
+def get_project_logs(project_id: int, session: Session = Depends(get_session)):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    log_content = read_project_log(project_id)
+    return {
+        "project_id": project_id,
+        "status": project.status,
+        "current_step": project.current_step,
+        "error_msg": project.error_msg,
+        "logs": log_content,
+    }
+
+
+@app.post("/api/projects/{project_id}/retry")
+def retry_project(project_id: int, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    project = session.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+    asr_pid = app_set.default_asr_profile_id if app_set else None
+    mt_pid = app_set.default_mt_profile_id if app_set else None
+    mode = app_set.default_translation_mode if app_set else "learning"
+
+    req = CreateProjectRequest(
+        url_or_path=project.source_uri,
+        title=project.title,
+        source_lang=project.source_lang,
+        target_lang=project.target_lang,
+        asr_profile_id=asr_pid,
+        mt_profile_id=mt_pid,
+        mode=mode,
+    )
+
+    project.status = "processing"
+    project.progress = 0.05
+    project.current_step = "Bắt đầu thử lại xử lý..."
+    project.error_msg = None
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+
+    background_tasks.add_task(run_pipeline_task, project.id, req)
     return project
 
 

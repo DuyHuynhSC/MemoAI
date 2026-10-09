@@ -44,6 +44,11 @@ class Settings(BaseSettings):
         certs_dir.mkdir(parents=True, exist_ok=True)
         return certs_dir
 
+    def get_logs_dir(self) -> Path:
+        logs_dir = self.get_data_dir() / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        return logs_dir
+
 
 settings = Settings()
 

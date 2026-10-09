@@ -34,6 +34,9 @@ class GeminiTranslator(TranslatorProvider):
 
 
     def _call_generate_with_retry(self, prompt: str) -> str:
+        from memoai.logger import get_logger
+        logger = get_logger("memoai.mt.gemini")
+
         models_to_try = [self.model] + [m for m in FALLBACK_MODELS if m != self.model]
         last_error = None
 
@@ -45,6 +48,7 @@ class GeminiTranslator(TranslatorProvider):
         )
 
         for model_name in models_to_try:
+            logger.info(f"Gửi yêu cầu dịch phụ đề tới Gemini model: {model_name}")
             for attempt in range(1, 4):
                 try:
                     response = self.client.models.generate_content(
@@ -52,10 +56,12 @@ class GeminiTranslator(TranslatorProvider):
                         contents=[prompt],
                         config=config,
                     )
+                    logger.info(f"Gemini MT ({model_name}) phản hồi thành công (attempt {attempt})")
                     return response.text or "{}"
                 except (errors.APIError, Exception) as e:
                     err_msg = str(e)
                     last_error = e
+                    logger.warning(f"Lỗi Gemini MT (model={model_name}, attempt={attempt}/3): {e}")
                     is_transient = (
                         "503" in err_msg
                         or "429" in err_msg
@@ -66,14 +72,16 @@ class GeminiTranslator(TranslatorProvider):
                         or "ssl" in err_msg.lower()
                     )
                     if is_transient:
-
                         wait_sec = attempt * 3
+                        logger.info(f"Chờ {wait_sec}s rồi thử lại Gemini MT...")
                         time.sleep(wait_sec)
                         continue
                     else:
                         break
 
-        raise last_error or RuntimeError("Gemini MT request failed across all candidate models.")
+        err_final = f"Dịch phụ đề thất bại trên tất cả model Gemini ({', '.join(models_to_try)}): {last_error}"
+        logger.error(err_final)
+        raise RuntimeError(err_final) from last_error
 
     def _translate_chunk(
         self,
@@ -83,6 +91,9 @@ class GeminiTranslator(TranslatorProvider):
         tgt_lang: str,
         mode: str
     ) -> list[str]:
+        from memoai.logger import get_logger
+        logger = get_logger("memoai.mt.gemini")
+
         items_payload = [{"id": start_id + i, "text": t} for i, t in enumerate(texts)]
 
         style_instruction = (
@@ -102,7 +113,21 @@ class GeminiTranslator(TranslatorProvider):
         )
 
         raw_text = self._call_generate_with_retry(prompt)
-        data = json.loads(raw_text)
+        clean_text = raw_text.strip()
+        if clean_text.startswith("```"):
+            lines = clean_text.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            clean_text = "\n".join(lines).strip()
+
+        try:
+            data = json.loads(clean_text)
+        except json.JSONDecodeError as jde:
+            logger.error(f"Lỗi phân tích JSON kết quả dịch Gemini MT: {jde}. Raw: {clean_text[:500]}")
+            raise RuntimeError(f"Lỗi phân tích cú pháp JSON kết quả dịch Gemini MT: {jde}") from jde
+
         item_list = data.get("items", [])
 
         # Map by id to preserve order
@@ -119,14 +144,20 @@ class GeminiTranslator(TranslatorProvider):
         if not texts:
             return []
 
+        from memoai.logger import get_logger
+        logger = get_logger("memoai.mt.gemini")
+        logger.info(f"Bắt đầu dịch {len(texts)} câu từ {src_lang} sang {tgt_lang} (chế độ {mode})")
+
         batch_size = 30
         results: list[str] = []
 
         for i in range(0, len(texts), batch_size):
             chunk = texts[i : i + batch_size]
+            logger.info(f"Đang dịch batch {i // batch_size + 1} ({len(chunk)} câu)...")
             translated_chunk = self._translate_chunk(
                 chunk, start_id=i, src_lang=src_lang, tgt_lang=tgt_lang, mode=mode
             )
             results.extend(translated_chunk)
 
+        logger.info(f"Hoàn thành dịch {len(results)} câu.")
         return results
