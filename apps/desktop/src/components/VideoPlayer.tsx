@@ -7,6 +7,7 @@ interface VideoPlayerProps {
   project: Project;
   segments: Segment[];
   currentTime: number;
+  seekTarget?: number | null;
   onTimeUpdate: (time: number) => void;
   onWordClick: (word: string, context: Segment) => void;
   showFurigana: boolean;
@@ -27,6 +28,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   project,
   segments,
   currentTime,
+  seekTarget,
   onTimeUpdate,
   onWordClick,
   showFurigana,
@@ -43,6 +45,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   setViFontSize,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const fontPopoverRef = useRef<HTMLDivElement | null>(null);
+  const lastActiveSegmentRef = useRef<Segment | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [isLoopingSegment, setIsLoopingSegment] = useState(false);
@@ -57,8 +61,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     (s) => currentTime >= s.start && currentTime <= s.end
   );
 
-  // During shadowing pause, lock to the sentence that just finished so its subtitles remain visible!
-  const displaySegment = (isShadowingPaused && shadowingSegment) ? shadowingSegment : activeSegment;
+  if (activeSegment) {
+    lastActiveSegmentRef.current = activeSegment;
+  }
+
+  // Display segment logic:
+  // - While playing: ALWAYS follow activeSegment smoothly (never get stuck!)
+  // - While paused in Shadowing: display the sentence that just finished
+  // - While paused manually: hold lastActiveSegmentRef so user sees live font adjustments!
+  const displaySegment = activeSegment || (
+    !isPlaying
+      ? (isShadowing && isShadowingPaused && shadowingSegment ? shadowingSegment : lastActiveSegmentRef.current)
+      : null
+  );
 
   const checkPlaybackRules = (curr: number) => {
     if (!videoRef.current) return;
@@ -104,6 +119,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     return () => clearInterval(timer);
   }, [isPlaying, isShadowing, isShadowingPaused, isLoopingSegment, segments]);
+
+  // Sync seekTarget from external controls (like clicking a sentence in TranscriptList)
+  useEffect(() => {
+    if (seekTarget !== undefined && seekTarget !== null && videoRef.current) {
+      videoRef.current.currentTime = seekTarget;
+      setIsShadowingPaused(false);
+      setShadowingSegment(null);
+      shadowedIdxRef.current = -1;
+      onTimeUpdate(seekTarget);
+    }
+  }, [seekTarget]);
+
+  // Click-outside and Escape key listener for Font Popover
+  useEffect(() => {
+    if (!isFontPopoverOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (fontPopoverRef.current && !fontPopoverRef.current.contains(e.target as Node)) {
+        setIsFontPopoverOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFontPopoverOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isFontPopoverOpen]);
 
   const resumeShadowing = () => {
     if (!videoRef.current) return;
@@ -195,8 +240,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onLoadedMetadata={() => {
             if (videoRef.current) setDuration(videoRef.current.duration);
           }}
-          onPlay={() => setIsPlaying(true)}
+          onPlay={() => {
+            setIsPlaying(true);
+            setIsShadowingPaused(false);
+            setShadowingSegment(null);
+          }}
           onPause={() => setIsPlaying(false)}
+          onSeeked={() => {
+            setIsShadowingPaused(false);
+            setShadowingSegment(null);
+          }}
           className="w-full h-full max-h-[calc(100vh-230px)] object-contain cursor-pointer"
           onClick={togglePlay}
         />
@@ -403,7 +456,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </button>
 
               {isFontPopoverOpen && (
-                <div className="absolute bottom-full right-0 mb-3 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-2xl z-30 space-y-3.5 text-xs text-slate-800 dark:text-slate-200">
+                <div
+                  ref={fontPopoverRef}
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute bottom-full right-0 mb-3 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 shadow-2xl z-30 space-y-3.5 text-xs text-slate-800 dark:text-slate-200"
+                >
                   <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 dark:border-slate-800">
                     <span className="font-bold text-slate-900 dark:text-white flex items-center space-x-1.5">
                       <Sliders className="w-3.5 h-3.5 text-indigo-500" />

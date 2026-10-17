@@ -29,7 +29,7 @@ import {
   testNetworkConnection,
   uploadCaCertificate,
 } from "../api/client";
-import type { AIProfile, AppSettings, AppTheme, NetworkTestResult, ProfileTestResult } from "../types";
+import type { AIProfile, AppSettings, AppTheme, NetworkTestResult, ProfileTestResult, Segment } from "../types";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -40,6 +40,7 @@ interface SettingsModalProps {
   setJaFontSize?: (v: number) => void;
   viFontSize?: number;
   setViFontSize?: (v: number) => void;
+  activeSegment?: Segment | null;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -51,6 +52,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   setJaFontSize,
   viFontSize = 20,
   setViFontSize,
+  activeSegment,
 }) => {
   const [activeTab, setActiveTab] = useState<"defaults" | "profiles" | "appearance" | "network">("defaults");
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -1035,23 +1037,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {/* Live Subtitle Preview */}
                   <div className="pt-3">
                     <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                      Xem trước phụ đề thực tế:
+                      Xem trước phụ đề thực tế {activeSegment ? "(Theo đoạn video hiện tại)" : "(Đoạn mẫu)"}:
                     </p>
                     <div className="bg-black/85 backdrop-blur-md rounded-2xl p-4 text-center border border-white/10 shadow-xl space-y-2">
                       <div
                         style={{ fontSize: `${jaFontSize}px`, lineHeight: 1.35 }}
                         className="font-semibold text-white tracking-wide"
                       >
-                        <ruby>
-                          最近<rt>さいきん</rt>
-                        </ruby>{" "}
-                        は いろんな アプリ が ある し 、 AI も ある し
+                        {activeSegment && activeSegment.ruby_html ? (
+                          <span dangerouslySetInnerHTML={{ __html: activeSegment.ruby_html }} />
+                        ) : activeSegment ? (
+                          activeSegment.text
+                        ) : (
+                          <>
+                            <ruby>
+                              最近<rt>さいきん</rt>
+                            </ruby>{" "}
+                            は いろんな アプリ が ある し 、 AI も ある し
+                          </>
+                        )}
                       </div>
                       <div
                         style={{ fontSize: `${viFontSize}px`, lineHeight: 1.35 }}
                         className="font-medium text-emerald-400 dark:text-emerald-300"
                       >
-                        Gần đây có rất nhiều ứng dụng, có cả AI, tôi nghĩ việc học sẽ dễ dàng hơn.
+                        {activeSegment?.translation || "Gần đây có rất nhiều ứng dụng, có cả AI, tôi nghĩ việc học sẽ dễ dàng hơn."}
                       </div>
                     </div>
                   </div>

@@ -33,8 +33,14 @@ export const App: React.FC = () => {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [currentTime, setCurrentTime] = useState<number>(0);
+  const [seekTarget, setSeekTarget] = useState<number | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>("");
+
+  const handleSeekFromTranscript = (time: number) => {
+    setCurrentTime(time);
+    setSeekTarget(time);
+  };
 
   // Theme state
   const [theme, setTheme] = useState<AppTheme>(() => {
@@ -313,6 +319,7 @@ export const App: React.FC = () => {
                 project={selectedProject}
                 segments={segments}
                 currentTime={currentTime}
+                seekTarget={seekTarget}
                 onTimeUpdate={setCurrentTime}
                 onWordClick={handleWordClick}
                 showFurigana={showFurigana}
@@ -347,11 +354,13 @@ export const App: React.FC = () => {
               <TranscriptList
                 segments={segments}
                 currentTime={currentTime}
-                onSeek={setCurrentTime}
+                onSeek={handleSeekFromTranscript}
                 onWordClick={handleWordClick}
                 showFurigana={showFurigana}
                 showRomaji={showRomaji}
                 showTranslation={showTranslation}
+                jaFontSize={jaFontSize}
+                viFontSize={viFontSize}
               />
             </div>
           </div>
@@ -567,6 +576,7 @@ export const App: React.FC = () => {
         setJaFontSize={setJaFontSize}
         viFontSize={viFontSize}
         setViFontSize={setViFontSize}
+        activeSegment={segments.find((s) => currentTime >= s.start && currentTime <= s.end) || segments[0] || null}
       />
 
       <WordPopup

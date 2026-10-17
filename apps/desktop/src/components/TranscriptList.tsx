@@ -10,6 +10,8 @@ interface TranscriptListProps {
   showFurigana: boolean;
   showRomaji: boolean;
   showTranslation: boolean;
+  jaFontSize?: number;
+  viFontSize?: number;
 }
 
 export const TranscriptList: React.FC<TranscriptListProps> = ({
@@ -20,6 +22,8 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
   showFurigana,
   showRomaji,
   showTranslation,
+  jaFontSize,
+  viFontSize,
 }) => {
   const activeRef = useRef<HTMLDivElement | null>(null);
 
@@ -60,7 +64,10 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
               )}
             </div>
 
-            <div className="text-base font-medium text-slate-900 dark:text-slate-100 flex flex-wrap gap-x-1 gap-y-1.5 items-end">
+            <div
+              style={jaFontSize ? { fontSize: `${Math.max(14, Math.round(jaFontSize * 0.65))}px`, lineHeight: 1.4 } : undefined}
+              className="text-base font-medium text-slate-900 dark:text-slate-100 flex flex-wrap gap-x-1 gap-y-1.5 items-end"
+            >
               {s.tokens && s.tokens.length > 0 ? (
                 s.tokens.map((token, tIdx) => (
                   <span
@@ -92,6 +99,7 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
 
             {showTranslation && s.translation && (
               <p
+                style={viFontSize ? { fontSize: `${Math.max(13, Math.round(viFontSize * 0.72))}px`, lineHeight: 1.4 } : undefined}
                 className={`text-sm mt-1.5 transition ${
                   isActive
                     ? "text-indigo-700 dark:text-indigo-200 font-medium"
