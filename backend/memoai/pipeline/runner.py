@@ -5,6 +5,7 @@ from memoai.media import is_url, download_media, extract_audio
 from memoai.providers.asr.base import ASRProvider, Segment
 from memoai.providers.asr.gemini_asr import GeminiASR
 from memoai.providers.asr.openai_asr import OpenAICompatASR
+from memoai.providers.asr.faster_whisper_asr import FasterWhisperASR
 from memoai.providers.mt.base import TranslatorProvider
 from memoai.providers.mt.gemini_mt import GeminiTranslator
 from memoai.providers.mt.openai_mt import OpenAICompatTranslator

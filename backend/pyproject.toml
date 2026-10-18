@@ -25,6 +25,7 @@ dependencies = [
 [project.optional-dependencies]
 local-whisper = [
     "faster-whisper>=1.0.0",
+    "av<14",
 ]
 
 [project.scripts]

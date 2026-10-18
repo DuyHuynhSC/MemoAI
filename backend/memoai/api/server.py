@@ -24,6 +24,9 @@ from memoai.network import (
 )
 from memoai.providers.asr.gemini_asr import GeminiASR
 from memoai.providers.asr.openai_asr import OpenAICompatASR
+from memoai.providers.asr.faster_whisper_asr import FasterWhisperASR
+from memoai.services.hardware import get_hardware_info
+from memoai.services.model_manager import model_manager
 from memoai.providers.mt.gemini_mt import GeminiTranslator
 from memoai.providers.mt.openai_mt import OpenAICompatTranslator
 from memoai.pipeline.runner import PipelineRunner
@@ -77,7 +80,21 @@ def seed_default_profiles():
             session.commit()
             session.refresh(q_profile)
 
-        # 3. Ensure AppSettings has valid defaults pointing to valid profiles
+        # 3. Ensure Faster-Whisper Offline profile exists
+        w_profile = session.exec(select(AIProfile).where(AIProfile.provider_type == "faster_whisper")).first()
+        if not w_profile:
+            w_profile = AIProfile(
+                name="Faster-Whisper Offline (Cục bộ)",
+                provider_type="faster_whisper",
+                model="base",
+                can_asr=True,
+                can_translate=False,
+            )
+            session.add(w_profile)
+            session.commit()
+            session.refresh(w_profile)
+
+        # 4. Ensure AppSettings has valid defaults pointing to valid profiles
         app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
         if not app_set:
             app_set = AppSettings(
@@ -270,6 +287,12 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                     asr = GeminiASR(
                         api_key=asr_profile.api_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY"),
                         model=asr_profile.model,
+                    )
+                elif asr_profile.provider_type == "faster_whisper":
+                    asr = FasterWhisperASR(
+                        model_size_or_path=asr_profile.model or "base",
+                        device="auto",
+                        compute_type="auto",
                     )
                 else:
                     asr = OpenAICompatASR(
@@ -670,6 +693,49 @@ def test_profile(req: TestProfileRequest):
                 "asr_message": asr_msg,
                 "discovered_models": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"],
             }
+        elif req.provider_type == "faster_whisper":
+            try:
+                import faster_whisper
+                import ctranslate2
+            except ImportError:
+                return {
+                    "success": False,
+                    "message": "Thư viện faster-whisper chưa được cài đặt. Vui lòng chạy: uv pip install faster-whisper",
+                    "chat_ok": False,
+                    "chat_message": "Không có thư viện faster-whisper",
+                    "asr_tested": True,
+                    "asr_supported": False,
+                    "asr_message": "Thiếu thư viện faster-whisper",
+                    "discovered_models": FasterWhisperASR.SUPPORTED_MODELS,
+                }
+
+            hw = get_hardware_info()
+            elapsed = int((time.time() - t0) * 1000)
+            model_name = req.model or "base"
+            is_valid_model = model_name in FasterWhisperASR.SUPPORTED_MODELS or Path(model_name).exists()
+
+            if not is_valid_model:
+                asr_msg = (
+                    f"Tên mô hình '{model_name}' không thuộc danh sách chuẩn. "
+                    f"Các mô hình chuẩn: {', '.join(FasterWhisperASR.SUPPORTED_MODELS)}"
+                )
+            else:
+                asr_msg = (
+                    f"Mô hình Offline Faster-Whisper '{model_name}' sẵn sàng. "
+                    f"Thiết bị đề xuất: {hw['recommended_device'].upper()} ({hw['recommended_compute_type']}). {hw['recommendation_reason']}"
+                )
+
+            return {
+                "success": is_valid_model,
+                "latency_ms": elapsed,
+                "message": f"Faster-Whisper Offline ({hw['recommended_device'].upper()})",
+                "chat_ok": False,
+                "chat_message": "Mô hình Faster-Whisper chuyên nhận dạng giọng nói (ASR), không hỗ trợ dịch thuật.",
+                "asr_tested": True,
+                "asr_supported": is_valid_model,
+                "asr_message": asr_msg,
+                "discovered_models": FasterWhisperASR.SUPPORTED_MODELS,
+            }
         else:
             from openai import OpenAI
             base_url = req.base_url or "http://localhost:11434/v1"
@@ -1041,3 +1107,53 @@ def export_anki(session: Session = Depends(get_session)):
     export_path = settings.get_data_dir() / "memoai_japanese_vocab.apkg"
     export_anki_deck(vocabs, output_path=export_path)
     return FileResponse(export_path, filename="memoai_japanese_vocab.apkg", media_type="application/octet-stream")
+
+
+@app.get("/api/system/hardware")
+def get_hardware_status():
+    """Return system hardware information and optimal offline model recommendations."""
+    return get_hardware_info()
+
+
+@app.get("/api/asr/offline/models")
+def list_offline_asr_models():
+    """List supported offline ASR models along with their download/cache status on disk."""
+    return model_manager.list_models()
+
+
+@app.post("/api/asr/offline/models/{model_id}/download")
+def download_offline_asr_model(model_id: str):
+    """Start background download of a specific Faster-Whisper offline model."""
+    try:
+        return model_manager.start_download(model_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/asr/offline/models/{model_id}/progress")
+def get_offline_asr_model_progress(model_id: str):
+    """Get real-time download progress, speed and ETA for a model."""
+    return model_manager.get_progress(model_id)
+
+
+@app.post("/api/asr/offline/models/{model_id}/cancel")
+def cancel_offline_asr_model_download(model_id: str):
+    """Cancel an ongoing model download."""
+    return model_manager.cancel_download(model_id)
+
+
+@app.delete("/api/asr/offline/models/{model_id}")
+def delete_offline_asr_model(model_id: str):
+    """Delete downloaded model cache from disk to reclaim storage space."""
+    return model_manager.delete_model(model_id)
+
+
+@app.post("/api/asr/offline/models/{model_id}/quick-test")
+def quick_test_offline_asr_model(model_id: str):
+    """Run a rapid inference test with synthetic audio on a downloaded model."""
+    res = model_manager.quick_test_model(model_id)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+

@@ -216,3 +216,64 @@ export async function uploadCaCertificate(payload: {
   return res.json();
 }
 
+export async function fetchHardwareInfo(): Promise<import("../types").HardwareInfo> {
+  const res = await fetch(`${API_BASE}/api/system/hardware`);
+  if (!res.ok) throw new Error("Failed to fetch hardware information");
+  return res.json();
+}
+
+export async function fetchOfflineModels(): Promise<import("../types").OfflineModelsResponse> {
+  const res = await fetch(`${API_BASE}/api/asr/offline/models`);
+  if (!res.ok) throw new Error("Failed to fetch offline models");
+  return res.json();
+}
+
+export async function downloadOfflineModel(modelId: string): Promise<{ ok: boolean; message: string; status: string }> {
+  const res = await fetch(`${API_BASE}/api/asr/offline/models/${modelId}/download`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || "Failed to start download");
+  }
+  return res.json();
+}
+
+export async function fetchOfflineModelProgress(modelId: string): Promise<import("../types").OfflineModelProgress> {
+  const res = await fetch(`${API_BASE}/api/asr/offline/models/${modelId}/progress`);
+  if (!res.ok) throw new Error("Failed to fetch model download progress");
+  return res.json();
+}
+
+export async function cancelOfflineModelDownload(modelId: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/api/asr/offline/models/${modelId}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to cancel download");
+  return res.json();
+}
+
+export async function deleteOfflineModel(modelId: string): Promise<{ ok: boolean; message: string; freed_mb: number }> {
+  const res = await fetch(`${API_BASE}/api/asr/offline/models/${modelId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete model");
+  return res.json();
+}
+
+export async function quickTestOfflineModel(modelId: string): Promise<{
+  ok: boolean;
+  latency_ms: number;
+  device: string;
+  compute_type: string;
+  message: string;
+}> {
+  const res = await fetch(`${API_BASE}/api/asr/offline/models/${modelId}/quick-test`, {
+    method: "POST",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || "Quick test failed");
+  return data;
+}
+
+

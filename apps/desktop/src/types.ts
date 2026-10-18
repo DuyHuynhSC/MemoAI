@@ -66,7 +66,7 @@ export interface WordDefinition {
 export interface AIProfile {
   id?: number;
   name: string;
-  provider_type: "gemini" | "openai_compat";
+  provider_type: "gemini" | "openai_compat" | "faster_whisper";
   api_key?: string;
   base_url?: string;
   model: string;
@@ -74,6 +74,62 @@ export interface AIProfile {
   can_translate: boolean;
   proxy_mode?: "auto" | "always" | "never";
   created_at?: string;
+}
+
+export interface HardwareInfo {
+  platform: string;
+  cpu_cores: number;
+  ram_total_gb: number;
+  ram_avail_gb: number;
+  cuda_available: boolean;
+  cuda_device_count: number;
+  cuda_device_name?: string | null;
+  cpu_supported_compute_types: string[];
+  cuda_supported_compute_types: string[];
+  recommended_device: string;
+  recommended_compute_type: string;
+  recommended_model: string;
+  recommendation_reason: string;
+}
+
+export interface OfflineModelItem {
+  id: string;
+  name: string;
+  repo_id: string;
+  size_mb: number;
+  recommended_for: string;
+  description: string;
+  is_recommended: boolean;
+  is_downloaded: boolean;
+  local_path?: string | null;
+  disk_size_mb: number;
+  status: "not_downloaded" | "downloading" | "completed" | "error" | "cancelled";
+  progress: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  speed_mb_s: number;
+  eta_seconds?: number | null;
+  error_msg?: string | null;
+}
+
+export interface OfflineModelsResponse {
+  engine: string;
+  models: OfflineModelItem[];
+  hardware: HardwareInfo;
+}
+
+export interface OfflineModelProgress {
+  model_id: string;
+  status: "not_downloaded" | "downloading" | "completed" | "error" | "cancelled";
+  progress: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  speed_mb_s: number;
+  eta_seconds?: number | null;
+  error_msg?: string | null;
+  is_downloaded: boolean;
+  local_path?: string | null;
+  disk_size_mb: number;
 }
 
 export interface AppSettings {

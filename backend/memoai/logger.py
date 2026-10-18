@@ -9,6 +9,7 @@ LOG_FORMAT = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _configured = False
+logger = logging.getLogger("memoai")
 
 
 def setup_logging() -> logging.Logger:

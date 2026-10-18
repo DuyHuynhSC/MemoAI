@@ -19,6 +19,12 @@ import {
   Upload,
   Loader2,
   AlertTriangle,
+  Cpu,
+  Download,
+  RefreshCw,
+  Play,
+  Ban,
+  HardDrive,
 } from "lucide-react";
 import {
   fetchSettings,
@@ -28,8 +34,21 @@ import {
   testProfileConnection,
   testNetworkConnection,
   uploadCaCertificate,
+  fetchOfflineModels,
+  downloadOfflineModel,
+  cancelOfflineModelDownload,
+  deleteOfflineModel,
+  quickTestOfflineModel,
 } from "../api/client";
-import type { AIProfile, AppSettings, AppTheme, NetworkTestResult, ProfileTestResult, Segment } from "../types";
+import type {
+  AIProfile,
+  AppSettings,
+  AppTheme,
+  NetworkTestResult,
+  ProfileTestResult,
+  Segment,
+  OfflineModelsResponse,
+} from "../types";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -54,7 +73,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   setViFontSize,
   activeSegment,
 }) => {
-  const [activeTab, setActiveTab] = useState<"defaults" | "profiles" | "appearance" | "network">("defaults");
+  const [activeTab, setActiveTab] = useState<"defaults" | "profiles" | "appearance" | "network" | "offline_asr">("defaults");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +93,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [networkTestResult, setNetworkTestResult] = useState<NetworkTestResult | null>(null);
   const [uploadingCa, setUploadingCa] = useState(false);
   const [uploadCaMsg, setUploadCaMsg] = useState<string | null>(null);
+
+  // Offline ASR tab state
+  const [offlineData, setOfflineData] = useState<OfflineModelsResponse | null>(null);
+  const [loadingOffline, setLoadingOffline] = useState(false);
+  const [testingModelId, setTestingModelId] = useState<string | null>(null);
+  const [quickTestResults, setQuickTestResults] = useState<{
+    [modelId: string]: { ok: boolean; latency_ms?: number; device?: string; message: string };
+  }>({});
+  const [offlineActionError, setOfflineActionError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -241,6 +269,82 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const loadOfflineModels = async (silent = false) => {
+    if (!silent) setLoadingOffline(true);
+    try {
+      const data = await fetchOfflineModels();
+      setOfflineData(data);
+    } catch (e: any) {
+      console.error(e);
+      if (!silent) setOfflineActionError(e.message || "Lỗi tải danh mục mô hình offline");
+    } finally {
+      if (!silent) setLoadingOffline(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (activeTab === "offline_asr") {
+      loadOfflineModels();
+    }
+  }, [activeTab, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !offlineData) return;
+    const hasDownloading = offlineData.models.some((m) => m.status === "downloading");
+    if (!hasDownloading) return;
+
+    const interval = setInterval(() => {
+      loadOfflineModels(true);
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [isOpen, offlineData]);
+
+  const handleDownloadModel = async (modelId: string) => {
+    setOfflineActionError(null);
+    try {
+      await downloadOfflineModel(modelId);
+      await loadOfflineModels(true);
+    } catch (e: any) {
+      setOfflineActionError(e.message || "Lỗi bắt đầu tải mô hình");
+    }
+  };
+
+  const handleCancelDownload = async (modelId: string) => {
+    try {
+      await cancelOfflineModelDownload(modelId);
+      await loadOfflineModels(true);
+    } catch (e: any) {
+      setOfflineActionError(e.message || "Lỗi hủy tải mô hình");
+    }
+  };
+
+  const handleDeleteModel = async (modelId: string, modelName: string) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa mô hình "${modelName}" khỏi ổ đĩa?`)) return;
+    try {
+      await deleteOfflineModel(modelId);
+      await loadOfflineModels(true);
+    } catch (e: any) {
+      setOfflineActionError(e.message || "Lỗi xóa mô hình");
+    }
+  };
+
+  const handleQuickTestModel = async (modelId: string) => {
+    setTestingModelId(modelId);
+    try {
+      const res = await quickTestOfflineModel(modelId);
+      setQuickTestResults((prev) => ({ ...prev, [modelId]: res }));
+    } catch (e: any) {
+      setQuickTestResults((prev) => ({
+        ...prev,
+        [modelId]: { ok: false, message: e.message || "Lỗi kiểm tra mô hình" },
+      }));
+    } finally {
+      setTestingModelId(null);
+    }
+  };
+
   if (!isOpen) return null;
 
 
@@ -293,6 +397,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }`}
           >
             Danh sách kết nối AI ({profiles.length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("offline_asr");
+              setEditingProfile(null);
+            }}
+            className={`pb-3 text-sm font-semibold transition border-b-2 flex items-center space-x-1.5 ${
+              activeTab === "offline_asr"
+                ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            <Cpu className="w-4 h-4" />
+            <span>Mô hình Offline</span>
+            {offlineData && (
+              <span className="text-[10px] px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 rounded-full font-bold">
+                {offlineData.models.filter((m) => m.is_downloaded).length}/{offlineData.models.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => {
@@ -481,83 +604,113 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </label>
                         <select
                           value={editingProfile.provider_type || "gemini"}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const val = e.target.value as any;
                             setEditingProfile({
                               ...editingProfile,
-                              provider_type: e.target.value as any,
-                              can_asr: e.target.value === "gemini",
-                            })
-                          }
+                              provider_type: val,
+                              can_asr: val === "gemini" || val === "faster_whisper",
+                              can_translate: val !== "faster_whisper",
+                              model: val === "faster_whisper" ? (editingProfile.model || "base") : editingProfile.model,
+                            });
+                          }}
                           className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
                         >
                           <option value="gemini">Google Gemini (Cloud)</option>
+                          <option value="faster_whisper">Faster-Whisper (Offline - Chạy cục bộ)</option>
                           <option value="openai_compat">OpenAI Compatible (Server nội bộ / Ollama)</option>
                         </select>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    {editingProfile.provider_type === "faster_whisper" ? (
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                          Tên mô hình (Model Name)
+                          Phiên bản mô hình Whisper
                         </label>
-                        <input
-                          type="text"
-                          placeholder={editingProfile.provider_type === "gemini" ? "gemini-2.5-flash" : "qwen2.5:latest"}
-                          value={editingProfile.model || ""}
+                        <select
+                          value={editingProfile.model || "base"}
                           onChange={(e) => setEditingProfile({ ...editingProfile, model: e.target.value })}
-                          required
                           className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                          {editingProfile.provider_type === "gemini" ? "Base URL (Mặc định để trống)" : "Base URL Endpoint"}
-                        </label>
-                        <input
-                          type="text"
-                          placeholder={editingProfile.provider_type === "gemini" ? "Để trống cho Gemini" : "http://localhost:11434/v1"}
-                          value={editingProfile.base_url || ""}
-                          onChange={(e) => setEditingProfile({ ...editingProfile, base_url: e.target.value })}
-                          className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                          API Key (Khóa kết nối)
-                        </label>
-                        {editingProfile.provider_type === "gemini" && (
-                          <a
-                            href="https://aistudio.google.com/"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[11px] text-indigo-500 hover:underline"
-                          >
-                            Lấy API key Google AI Studio
-                          </a>
-                        )}
-                      </div>
-                      <div className="relative">
-                        <input
-                          type={showApiKey ? "text" : "password"}
-                          placeholder={editingProfile.provider_type === "gemini" ? "AIzaSy..." : "dummy_key hoặc khóa OpenAI của bạn"}
-                          value={editingProfile.api_key || ""}
-                          onChange={(e) => setEditingProfile({ ...editingProfile, api_key: e.target.value })}
-                          className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 pr-10"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowApiKey(!showApiKey)}
-                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-white"
                         >
-                          {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
+                          <option value="tiny">Whisper Tiny (~75 MB - Siêu nhẹ)</option>
+                          <option value="base">Whisper Base (~145 MB - Tiêu chuẩn CPU)</option>
+                          <option value="small">Whisper Small (~480 MB - Khuyên dùng 16GB RAM)</option>
+                          <option value="medium">Whisper Medium (~1.5 GB - Độ chuẩn xác cao)</option>
+                          <option value="large-v3-turbo">Whisper Large v3 Turbo (~1.6 GB - Tối ưu cho GPU)</option>
+                          <option value="large-v3">Whisper Large v3 (~3.1 GB - Đầy đủ)</option>
+                        </select>
+                        <div className="mt-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 p-3 rounded-xl text-xs flex items-center space-x-2">
+                          <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
+                          <span>Mô hình Faster-Whisper chạy hoàn toàn offline trên máy tính, không cần cấu hình Base URL hay API Key.</span>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                              Tên mô hình (Model Name)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder={editingProfile.provider_type === "gemini" ? "gemini-2.5-flash" : "qwen2.5:latest"}
+                              value={editingProfile.model || ""}
+                              onChange={(e) => setEditingProfile({ ...editingProfile, model: e.target.value })}
+                              required
+                              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                              {editingProfile.provider_type === "gemini" ? "Base URL (Mặc định để trống)" : "Base URL Endpoint"}
+                            </label>
+                            <input
+                              type="text"
+                              placeholder={editingProfile.provider_type === "gemini" ? "Để trống cho Gemini" : "http://localhost:11434/v1"}
+                              value={editingProfile.base_url || ""}
+                              onChange={(e) => setEditingProfile({ ...editingProfile, base_url: e.target.value })}
+                              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                              API Key (Khóa kết nối)
+                            </label>
+                            {editingProfile.provider_type === "gemini" && (
+                              <a
+                                href="https://aistudio.google.com/"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-indigo-500 hover:underline"
+                              >
+                                Lấy API key Google AI Studio
+                              </a>
+                            )}
+                          </div>
+                          <div className="relative">
+                            <input
+                              type={showApiKey ? "text" : "password"}
+                              placeholder={editingProfile.provider_type === "gemini" ? "AIzaSy..." : "dummy_key hoặc khóa OpenAI của bạn"}
+                              value={editingProfile.api_key || ""}
+                              onChange={(e) => setEditingProfile({ ...editingProfile, api_key: e.target.value })}
+                              className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 pr-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowApiKey(!showApiKey)}
+                              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                            >
+                              {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                     {/* Capabilities Checkboxes */}
                     <div className="bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl p-3 flex items-center justify-between">
@@ -1353,6 +1506,280 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
               </form>
+            )}
+
+            {/* Tab 5: Offline Models (Faster-Whisper) */}
+            {activeTab === "offline_asr" && (
+              <div className="py-4 space-y-4 flex-1 overflow-y-auto">
+                {/* Header banner */}
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-700/80">
+                  <div className="flex items-center space-x-2">
+                    <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                      <Cpu className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                        Mô hình nhận dạng giọng nói Offline (Faster-Whisper)
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Chạy trực tiếp trên thiết bị của bạn. Không cần mạng Internet, bảo mật tuyệt đối và không mất phí API.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => loadOfflineModels()}
+                    disabled={loadingOffline}
+                    className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition text-slate-700 dark:text-slate-200"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingOffline ? "animate-spin" : ""}`} />
+                    <span>Làm mới</span>
+                  </button>
+                </div>
+
+                {offlineActionError && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 rounded-xl text-xs flex items-center justify-between">
+                    <span>{offlineActionError}</span>
+                    <button
+                      onClick={() => setOfflineActionError(null)}
+                      className="p-1 hover:bg-red-500/20 rounded"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Hardware Diagnostic Banner */}
+                {offlineData?.hardware && (
+                  <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center space-x-1.5">
+                        <HardDrive className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Chẩn đoán phần cứng thiết bị</span>
+                      </h4>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Hệ điều hành: {offlineData.hardware.platform}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      {/* CPU & RAM */}
+                      <div className="bg-white dark:bg-slate-800/80 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700/70">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                          Bộ xử lý & RAM
+                        </span>
+                        <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                          {offlineData.hardware.cpu_cores} nhân CPU
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          {offlineData.hardware.ram_total_gb} GB RAM (trống {offlineData.hardware.ram_avail_gb} GB)
+                        </div>
+                      </div>
+
+                      {/* GPU Acceleration */}
+                      <div className="bg-white dark:bg-slate-800/80 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700/70">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                          Tăng tốc phần cứng
+                        </span>
+                        {offlineData.hardware.cuda_available ? (
+                          <>
+                            <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-1">
+                              <span>🚀 NVIDIA CUDA</span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate" title={offlineData.hardware.cuda_device_name || ""}>
+                              {offlineData.hardware.cuda_device_name || "CUDA GPU"} (float16)
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-xs font-bold text-blue-600 dark:text-blue-400 flex items-center space-x-1">
+                              <span>💻 CPU Optimized</span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              Lượng tử hóa int8
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Recommendation */}
+                      <div className="bg-white dark:bg-slate-800/80 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700/70">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                          Đề xuất tối ưu
+                        </span>
+                        <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                          Mô hình {offlineData.hardware.recommended_model.toUpperCase()}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate" title={offlineData.hardware.recommendation_reason}>
+                          {offlineData.hardware.recommendation_reason}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Model Catalog List */}
+                <div className="space-y-3">
+                  {loadingOffline && !offlineData ? (
+                    <div className="py-12 flex flex-col items-center justify-center text-slate-400 space-y-2">
+                      <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                      <span className="text-xs">Đang kiểm tra danh mục mô hình offline...</span>
+                    </div>
+                  ) : (
+                    offlineData?.models.map((model) => {
+                      const isTesting = testingModelId === model.id;
+                      const testRes = quickTestResults[model.id];
+                      const isDownloading = model.status === "downloading";
+
+                      return (
+                        <div
+                          key={model.id}
+                          className={`bg-white dark:bg-slate-800/90 border rounded-xl p-4 transition shadow-sm ${
+                            model.is_recommended
+                              ? "border-indigo-400/60 dark:border-indigo-500/60 ring-1 ring-indigo-400/20"
+                              : "border-slate-200 dark:border-slate-700/80"
+                          }`}
+                        >
+                          {/* Top row */}
+                          <div className="flex items-start justify-between">
+                            <div className="space-y-1">
+                              <div className="flex items-center space-x-2">
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                  {model.name}
+                                </h4>
+                                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                                  ~{model.size_mb} MB
+                                </span>
+                                {model.is_recommended && (
+                                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center space-x-1">
+                                    <span>⭐ Khuyên dùng cho máy này</span>
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
+                                {model.description}
+                              </p>
+                            </div>
+
+                            {/* Status badge & Actions */}
+                            <div className="flex items-center space-x-2 flex-shrink-0">
+                              {model.is_downloaded ? (
+                                <>
+                                  <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Đã sẵn sàng ({model.disk_size_mb} MB)</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickTestModel(model.id)}
+                                    disabled={isTesting}
+                                    className="px-2.5 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-50"
+                                    title="Chạy thử nghiệm phát âm mẫu để kiểm tra độ trễ"
+                                  >
+                                    {isTesting ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Play className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>Thử nghiệm</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteModel(model.id, model.name)}
+                                    className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition"
+                                    title="Xóa mô hình khỏi ổ đĩa"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              ) : isDownloading ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelDownload(model.id)}
+                                  className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  <span>Hủy tải</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadModel(model.id)}
+                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition shadow-sm"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>Tải xuống ({model.size_mb} MB)</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Downloading progress bar */}
+                          {isDownloading && (
+                            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/60 space-y-1.5">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold text-indigo-600 dark:text-indigo-400 animate-pulse">
+                                  Đang tải tệp mô hình từ HuggingFace...
+                                </span>
+                                <span className="font-bold text-slate-700 dark:text-slate-300">
+                                  {Math.round(model.progress * 100)}%
+                                </span>
+                              </div>
+                              <div className="w-full bg-slate-100 dark:bg-slate-700/80 h-2.5 rounded-full overflow-hidden">
+                                <div
+                                  className="bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 h-full transition-all duration-300 rounded-full"
+                                  style={{ width: `${Math.max(5, Math.round(model.progress * 100))}%` }}
+                                ></div>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                <span>
+                                  {(model.downloaded_bytes / (1024 * 1024)).toFixed(1)} MB / {(model.total_bytes / (1024 * 1024)).toFixed(1)} MB
+                                </span>
+                                <span>
+                                  {model.speed_mb_s > 0 ? `${model.speed_mb_s} MB/s` : "Đang kết nối..."}
+                                  {model.eta_seconds != null ? ` • Còn lại: ~${model.eta_seconds}s` : ""}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Quick test feedback notification */}
+                          {testRes && (
+                            <div
+                              className={`mt-3 p-2.5 rounded-lg text-xs flex items-center justify-between ${
+                                testRes.ok
+                                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+                                  : "bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20"
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2">
+                                {testRes.ok ? (
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                                ) : (
+                                  <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
+                                )}
+                                <span>{testRes.message}</span>
+                              </div>
+                              <button
+                                onClick={() =>
+                                  setQuickTestResults((prev) => {
+                                    const next = { ...prev };
+                                    delete next[model.id];
+                                    return next;
+                                  })
+                                }
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             )}
           </>
 

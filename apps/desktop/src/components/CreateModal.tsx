@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { X, Film, Sparkles, Video, Settings as SettingsIcon } from "lucide-react";
+import { X, Film, Sparkles, Video, Settings as SettingsIcon, Cpu } from "lucide-react";
 import { createProject, fetchSettings, fetchMediaInfo } from "../api/client";
 import type { Project, AIProfile } from "../types";
 
@@ -209,6 +209,12 @@ export const CreateModal: React.FC<CreateModalProps> = ({
                   ))
                 )}
               </select>
+              {profiles.find((p) => p.id === selectedAsrProfileId)?.provider_type === "faster_whisper" && (
+                <div className="mt-1.5 flex items-center space-x-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                  <Cpu className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>Nhận dạng Offline trực tiếp trên máy (không cần mạng & token)</span>
+                </div>
+              )}
             </div>
 
             <div>
