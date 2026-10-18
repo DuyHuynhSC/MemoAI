@@ -136,6 +136,10 @@ export const App: React.FC = () => {
     setWordDef(null);
     setWordLoading(true);
     setActiveWordContext(context);
+    if (currentTime < context.start || currentTime > context.end) {
+      setCurrentTime(context.start);
+      setSeekTarget(context.start);
+    }
     try {
       const def = await lookupWord(word, context.text);
       setWordDef(def);
@@ -334,6 +338,8 @@ export const App: React.FC = () => {
                 setJaFontSize={setJaFontSize}
                 viFontSize={viFontSize}
                 setViFontSize={setViFontSize}
+                isWordPopupOpen={wordLoading || wordDef !== null}
+                onSeekHandled={() => setSeekTarget(null)}
               />
             </div>
 

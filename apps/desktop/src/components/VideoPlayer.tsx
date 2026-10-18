@@ -22,6 +22,8 @@ interface VideoPlayerProps {
   setJaFontSize: (v: number) => void;
   viFontSize: number;
   setViFontSize: (v: number) => void;
+  isWordPopupOpen?: boolean;
+  onSeekHandled?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -43,6 +45,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   setJaFontSize,
   viFontSize,
   setViFontSize,
+  isWordPopupOpen,
+  onSeekHandled,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fontPopoverRef = useRef<HTMLDivElement | null>(null);
@@ -128,8 +132,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setShadowingSegment(null);
       shadowedIdxRef.current = -1;
       onTimeUpdate(seekTarget);
+      onSeekHandled?.();
     }
   }, [seekTarget]);
+
+  // Automatically pause video when looking up a word (WordPopup is open)
+  useEffect(() => {
+    if (isWordPopupOpen && videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [isWordPopupOpen]);
 
   // Click-outside and Escape key listener for Font Popover
   useEffect(() => {
@@ -269,7 +282,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             )}
 
-            <div className="bg-black/80 backdrop-blur-md px-6 py-3.5 rounded-2xl max-w-3xl text-center shadow-2xl border border-white/10 pointer-events-auto transition duration-150">
+            <div
+              onClick={togglePlay}
+              className="bg-black/80 backdrop-blur-md px-6 py-3.5 rounded-2xl max-w-3xl text-center shadow-2xl border border-white/10 pointer-events-auto transition duration-150 cursor-pointer"
+            >
               {showJapanese && (
                 <div
                   style={{ fontSize: `${jaFontSize || 26}px`, lineHeight: 1.35 }}
@@ -281,6 +297,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                         key={idx}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (videoRef.current && !videoRef.current.paused) {
+                            videoRef.current.pause();
+                            setIsPlaying(false);
+                          }
                           onWordClick(token.surface, displaySegment);
                         }}
                         className="hover:text-indigo-400 hover:bg-white/10 px-1 py-0.5 rounded cursor-pointer transition select-none"

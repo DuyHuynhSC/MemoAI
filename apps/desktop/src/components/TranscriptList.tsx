@@ -74,6 +74,7 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
                     key={tIdx}
                     onClick={(e) => {
                       e.stopPropagation();
+                      onSeek(s.start);
                       onWordClick(token.surface, s);
                     }}
                     className="hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 px-1 py-0.5 rounded transition cursor-pointer"
