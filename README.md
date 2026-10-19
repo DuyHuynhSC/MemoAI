@@ -134,6 +134,21 @@ uv run memoai server
 ```
 > Server API sẽ sẵn sàng tại: `http://127.0.0.1:8000` (Tài liệu API Swagger tại `http://127.0.0.1:8000/docs`).
 
+> [!TIP]
+> **Khắc phục lỗi chứng chỉ SSL khi dùng mạng Proxy công ty / Antivirus:**
+> Nếu gặp lỗi `invalid peer certificate: UnknownIssuer` (do Proxy công ty như Zscaler/Fortinet can thiệp giải mã SSL), bạn hãy thêm cờ `--allow-insecure-host` khi sync:
+> ```powershell
+> uv sync --extra local-whisper --allow-insecure-host pypi.org --allow-insecure-host files.pythonhosted.org
+> ```
+> *Hoặc thêm cấu hình cố định vào cuối file `backend/pyproject.toml` để không cần gõ lại cờ mỗi lần:*
+> ```toml
+> [tool.uv]
+> allow-insecure-host = [
+>     "pypi.org",
+>     "files.pythonhosted.org",
+> ]
+> ```
+
 ### Bước 3: Khởi động Giao diện Desktop
 
 Mở một cửa sổ terminal mới:
