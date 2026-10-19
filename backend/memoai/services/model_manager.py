@@ -6,7 +6,27 @@ import time
 import wave
 from pathlib import Path
 from typing import Any, Optional
-from tqdm.auto import tqdm
+
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    class tqdm:  # type: ignore[no-redef]
+        """Lightweight fallback progress tracker when tqdm is not installed."""
+        def __init__(self, *args, **kwargs):
+            self.total = kwargs.get("total", 0)
+            self.n = 0
+
+        def update(self, n=1):
+            self.n += n
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.close()
 
 from memoai.config import settings
 from memoai.logger import logger
@@ -357,7 +377,13 @@ class OfflineModelManager:
             except Exception as e:
                 logger.warning(f"Không thể áp dụng cấu hình network/proxy: {e}")
 
-            import huggingface_hub
+            try:
+                import huggingface_hub
+            except ImportError:
+                raise RuntimeError(
+                    "Thư viện 'huggingface_hub' chưa được cài đặt trong môi trường. "
+                    "Vui lòng cài đặt: uv pip install huggingface-hub"
+                )
 
             repo_id = MODEL_REPOS[model_id]
             whisper_dir = self.get_models_dir()
