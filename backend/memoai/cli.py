@@ -17,7 +17,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from memoai.config import settings
 from memoai.providers.asr.gemini_asr import GeminiASR
 from memoai.providers.asr.openai_asr import OpenAICompatASR
+from memoai.providers.asr.faster_whisper_asr import FasterWhisperASR
 from memoai.providers.mt.gemini_mt import GeminiTranslator
+
 from memoai.providers.mt.openai_mt import OpenAICompatTranslator
 from memoai.pipeline.runner import PipelineRunner
 from memoai.languages.ja import JapaneseLanguagePack
@@ -80,8 +82,9 @@ def run(
     input_path_or_url: str = typer.Argument(..., help="Đường dẫn file video/audio hoặc link YouTube"),
     src: str = typer.Option("ja", "--src", "-s", help="Ngôn ngữ gốc (mặc định: ja - Nhật)"),
     tgt: str = typer.Option("vi", "--tgt", "-t", help="Ngôn ngữ dịch (mặc định: vi - Việt)"),
-    asr: str = typer.Option("gemini", "--asr", help="Bộ nhận dạng giọng nói: 'gemini' hoặc 'openai'"),
+    asr: str = typer.Option("gemini", "--asr", help="Bộ nhận dạng giọng nói: 'gemini', 'openai' hoặc 'faster_whisper' (offline)"),
     mt: str = typer.Option("openai", "--mt", help="Bộ dịch: 'openai' (cho Qwen/Ollama) hoặc 'gemini'"),
+    offline_model: str = typer.Option("base", "--offline-model", help="Tên model Faster-Whisper (tiny, base, small, medium, large-v3-turbo, large-v3)"),
     gemini_key: Optional[str] = typer.Option(None, "--gemini-key", help="API key của Google Gemini"),
     gemini_model: Optional[str] = typer.Option(None, "--gemini-model", help="Tên model Gemini (mặc định: gemini-2.5-flash)"),
     openai_base_url: Optional[str] = typer.Option(None, "--openai-base-url", help="Base URL cho server OpenAI/Qwen"),
@@ -113,8 +116,10 @@ def run(
         asr_provider = GeminiASR(api_key=g_key, model=g_model)
     elif asr.lower() == "openai":
         asr_provider = OpenAICompatASR(base_url=oa_base, api_key=oa_key, model=settings.openai_asr_model)
+    elif asr.lower() in ("faster_whisper", "offline", "whisper"):
+        asr_provider = FasterWhisperASR(model_size_or_path=offline_model)
     else:
-        console.print(f"[red]ASR provider '{asr}' không được hỗ trợ. Chọn 'gemini' hoặc 'openai'.[/red]")
+        console.print(f"[red]ASR provider '{asr}' không được hỗ trợ. Chọn 'gemini', 'openai' hoặc 'faster_whisper'.[/red]")
         sys.exit(1)
 
     # 2. Setup MT Provider
