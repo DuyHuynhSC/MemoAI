@@ -7,6 +7,6 @@
     "server": "cd backend && uv run memoai server",
     "desktop:web": "cd apps/desktop && npm run dev",
     "desktop:app": "cd apps/desktop && npx tauri dev",
-    "desktop:build": "cd apps/desktop && npm run build"
+    "desktop:build": "cd apps/desktop && npx tauri build"
   }
 }
