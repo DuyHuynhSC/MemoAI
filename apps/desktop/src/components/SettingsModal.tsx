@@ -349,30 +349,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 w-full max-w-3xl rounded-2xl p-6 shadow-2xl relative max-h-[90vh] flex flex-col text-slate-900 dark:text-white">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white dark:bg-slate-800 border-t sm:border border-slate-200 dark:border-slate-700 w-full sm:max-w-3xl rounded-t-3xl sm:rounded-2xl p-4 sm:p-6 shadow-2xl relative max-h-[92vh] flex flex-col text-slate-900 dark:text-white">
+        <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-3 sm:hidden" />
+
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/50"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/50"
+          aria-label="Đóng"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="flex items-center space-x-2.5 pb-4 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center space-x-2.5 pb-4 border-b border-slate-200 dark:border-slate-700 pr-8">
           <div className="p-2 bg-indigo-500/10 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 rounded-xl">
             <Settings className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Cài đặt ứng dụng</h2>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Cài đặt ứng dụng</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Tùy chỉnh giao diện, cỡ chữ phụ đề và quản lý các kết nối AI (Gemini, Qwen, Ollama)
+              Tùy chỉnh giao diện, cỡ chữ phụ đề và quản lý các kết nối AI
             </p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-200 dark:border-slate-700/80 mt-4 space-x-6">
+        <div className="flex border-b border-slate-200 dark:border-slate-700/80 mt-3 sm:mt-4 space-x-4 sm:space-x-6 overflow-x-auto scrollbar-none flex-nowrap pb-1">
           <button
             onClick={() => {
               setActiveTab("defaults");

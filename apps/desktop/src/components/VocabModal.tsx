@@ -50,18 +50,21 @@ export const VocabModal: React.FC<VocabModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 w-full max-w-2xl rounded-2xl p-6 shadow-2xl relative max-h-[85vh] flex flex-col text-slate-900 dark:text-white">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white dark:bg-slate-800 border-t sm:border border-slate-200 dark:border-slate-700 w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl p-5 sm:p-6 shadow-2xl relative max-h-[88vh] flex flex-col text-slate-900 dark:text-white">
+        <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-3 sm:hidden" />
+
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/50"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 dark:hover:text-white p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/50"
+          aria-label="Đóng"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-700/80 pr-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-700/80 pr-8">
           <div>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white flex items-center space-x-2">
               <BookOpen className="w-5 h-5 text-indigo-500" />
               <span>Sổ từ vựng cá nhân ({vocabs.length})</span>
             </h2>
@@ -73,7 +76,7 @@ export const VocabModal: React.FC<VocabModalProps> = ({ isOpen, onClose }) => {
           <a
             href={getAnkiExportUrl()}
             download="memoai_japanese_vocab.apkg"
-            className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 transition"
+            className="inline-flex items-center justify-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-600/20 transition whitespace-nowrap"
           >
             <Download className="w-4 h-4" />
             <span>Xuất thẻ Anki (.apkg)</span>
@@ -82,7 +85,7 @@ export const VocabModal: React.FC<VocabModalProps> = ({ isOpen, onClose }) => {
 
         <div className="flex-1 overflow-y-auto py-4 space-y-3 pr-1">
           {loading ? (
-            <div className="py-16 text-center text-slate-400">Đang tải danh sách từ vựng...</div>
+            <div className="py-16 text-center text-slate-400 text-sm">Đang tải danh sách từ vựng...</div>
           ) : vocabs.length === 0 ? (
             <div className="py-16 text-center text-slate-400">
               <BookOpen className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto mb-3" />
@@ -99,7 +102,7 @@ export const VocabModal: React.FC<VocabModalProps> = ({ isOpen, onClose }) => {
               >
                 <div className="space-y-1">
                   <div className="flex items-center space-x-3">
-                    <span className="text-xl font-bold text-slate-900 dark:text-white">{item.word}</span>
+                    <span className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">{item.word}</span>
                     {item.reading && (
                       <span className="text-sm text-indigo-600 dark:text-indigo-300 font-medium">
                         {item.reading}
@@ -113,9 +116,9 @@ export const VocabModal: React.FC<VocabModalProps> = ({ isOpen, onClose }) => {
                     <button
                       onClick={() => speak(item.word)}
                       title="Phát âm"
-                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition"
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition p-1"
                     >
-                      <Volume2 className="w-3.5 h-3.5" />
+                      <Volume2 className="w-4 h-4" />
                     </button>
                   </div>
 
@@ -134,7 +137,7 @@ export const VocabModal: React.FC<VocabModalProps> = ({ isOpen, onClose }) => {
                 <button
                   onClick={() => handleDelete(item.id)}
                   title="Xoá từ này"
-                  className="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition p-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg ml-3"
+                  className="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg ml-2 flex-shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

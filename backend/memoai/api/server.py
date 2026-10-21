@@ -1,10 +1,12 @@
 import os
 import time
+import uuid
+import shutil
 import threading
 import traceback
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -866,6 +868,57 @@ def create_project(req: CreateProjectRequest, background_tasks: BackgroundTasks,
     session.commit()
     session.refresh(project)
 
+    background_tasks.add_task(run_pipeline_task, project.id, req)
+    return project
+
+
+@app.post("/api/projects/upload")
+async def upload_project_media(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    source_lang: str = Form("ja"),
+    target_lang: str = Form("vi"),
+    asr_profile_id: Optional[int] = Form(None),
+    mt_profile_id: Optional[int] = Form(None),
+    mode: str = Form("learning"),
+    session: Session = Depends(get_session),
+):
+    upload_dir = settings.get_data_dir() / "uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_filename = f"{uuid.uuid4().hex[:12]}_{file.filename}"
+    saved_path = upload_dir / saved_filename
+
+    with saved_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    init_title = title.strip() if title and title.strip() else Path(file.filename or "video.mp4").stem
+    project = Project(
+        title=init_title or "Untitled Upload",
+        source_type="file",
+        source_uri=str(saved_path),
+        source_lang=source_lang,
+        target_lang=target_lang,
+        asr_profile_id=asr_profile_id,
+        mt_profile_id=mt_profile_id,
+        status="processing",
+        progress=0.05,
+        current_step="Đã nhận video, bắt đầu xử lý...",
+    )
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+
+    req = CreateProjectRequest(
+        url_or_path=str(saved_path),
+        title=project.title,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        asr_profile_id=asr_profile_id,
+        mt_profile_id=mt_profile_id,
+        mode=mode,
+    )
     background_tasks.add_task(run_pipeline_task, project.id, req)
     return project
 

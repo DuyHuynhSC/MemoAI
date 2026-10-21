@@ -16,9 +16,11 @@ import {
   X,
   RefreshCw,
   FileText,
+  Server,
+  WifiOff,
 } from "lucide-react";
 import type { Project, Segment, WordDefinition, AppTheme } from "./types";
-import { fetchProjects, fetchProject, deleteProject, updateProject, lookupWord, retryProject } from "./api/client";
+import { fetchProjects, fetchProject, deleteProject, updateProject, lookupWord, retryProject, getApiBase } from "./api/client";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { TranscriptList } from "./components/TranscriptList";
 import { WordPopup } from "./components/WordPopup";
@@ -26,6 +28,7 @@ import { CreateModal } from "./components/CreateModal";
 import { VocabModal } from "./components/VocabModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { ErrorLogModal } from "./components/ErrorLogModal";
+import { ServerAddressModal } from "./components/ServerAddressModal";
 
 export const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -36,6 +39,7 @@ export const App: React.FC = () => {
   const [seekTarget, setSeekTarget] = useState<number | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>("");
+  const [hasConnectionError, setHasConnectionError] = useState<boolean>(false);
 
   const handleSeekFromTranscript = (time: number) => {
     setCurrentTime(time);
@@ -81,6 +85,7 @@ export const App: React.FC = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isVocabOpen, setIsVocabOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [errorModalProject, setErrorModalProject] = useState<Project | null>(null);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
 
@@ -100,8 +105,10 @@ export const App: React.FC = () => {
     try {
       const data = await fetchProjects();
       setProjects(data);
+      setHasConnectionError(false);
     } catch (e) {
       console.error(e);
+      setHasConnectionError(true);
     }
   };
 
@@ -152,33 +159,36 @@ export const App: React.FC = () => {
 
   const handleDeleteProject = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Bạn có chắc chắn muốn xóa video này khỏi danh sách?")) {
+    if (!confirm("Bạn có chắc chắn muốn xóa bài học này không?")) return;
+    try {
       await deleteProject(id);
-      if (selectedProjectId === id) setSelectedProjectId(null);
+      if (selectedProjectId === id) {
+        setSelectedProjectId(null);
+      }
       loadProjects();
+    } catch (err: any) {
+      alert(`Lỗi khi xóa bài học: ${err.message}`);
     }
   };
 
-  const handleStartEdit = (project: Project, e: React.MouseEvent) => {
+  const handleStartEdit = (p: Project, e: React.MouseEvent) => {
     e.stopPropagation();
-    setEditingProjectId(project.id);
-    setEditingTitle(project.title);
+    setEditingProjectId(p.id);
+    setEditingTitle(p.title);
   };
 
-  const handleSaveEdit = async (projectId: number, e?: React.FormEvent | React.MouseEvent) => {
+  const handleSaveEdit = async (id: number, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (!editingTitle.trim()) return;
     try {
-      const updated = await updateProject(projectId, { title: editingTitle.trim() });
-      setProjects((prev) =>
-        prev.map((p) => (p.id === projectId ? { ...p, title: updated.title } : p))
-      );
-      if (selectedProject?.id === projectId) {
+      const updated = await updateProject(id, { title: editingTitle.trim() });
+      setProjects((prev) => prev.map((item) => (item.id === id ? { ...item, title: updated.title } : item)));
+      if (selectedProject?.id === id) {
         setSelectedProject((prev) => (prev ? { ...prev, title: updated.title } : null));
       }
       setEditingProjectId(null);
-    } catch (err) {
-      console.error("Failed to update project title", err);
+    } catch (err: any) {
+      alert(`Lỗi khi cập nhật tiêu đề: ${err.message}`);
     }
   };
 
@@ -194,83 +204,97 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Top Navbar */}
-      <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/80 backdrop-blur px-6 flex items-center justify-between z-30 sticky top-0">
-        <div className="flex items-center space-x-4">
+      <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/80 backdrop-blur px-4 sm:px-6 flex items-center justify-between z-30 sticky top-0">
+        <div className="flex items-center space-x-2 sm:space-x-4 min-w-0">
           {selectedProjectId ? (
             <button
               onClick={() => setSelectedProjectId(null)}
-              className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
+              className="flex items-center space-x-1.5 sm:space-x-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition px-2.5 sm:px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Thư viện</span>
+              <span className="font-medium text-xs sm:text-sm">Thư viện</span>
             </button>
           ) : (
             <div className="flex items-center space-x-2.5">
-              <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/30">
-                <Film className="w-5 h-5 text-white" />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-600/30">
+                <Film className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-wide">MemoAI</h1>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">Học ngoại ngữ qua phụ đề song ngữ</p>
+                <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-wide">MemoAI</h1>
+                <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 hidden xs:block">Học ngoại ngữ qua phụ đề song ngữ</p>
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex items-center space-x-2.5">
+        <div className="flex items-center space-x-1.5 sm:space-x-2.5">
           {/* Light / Dark Mode Toggle */}
           <button
             onClick={toggleTheme}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
-            title={theme === "dark" ? "Chuyển sang Giao diện sáng" : "Chuyển sang Giao diện tối"}
+            className="flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            title={theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}
+            aria-label="Đổi giao diện sáng/tối"
           >
             {theme === "dark" ? (
               <>
                 <Sun className="w-4 h-4 text-amber-400" />
-                <span className="hidden sm:inline">Giao diện sáng</span>
+                <span className="hidden lg:inline">Giao diện sáng</span>
               </>
             ) : (
               <>
                 <Moon className="w-4 h-4 text-indigo-600" />
-                <span className="hidden sm:inline">Giao diện tối</span>
+                <span className="hidden lg:inline">Giao diện tối</span>
               </>
             )}
           </button>
 
+          {/* Server IP config button */}
+          <button
+            onClick={() => setIsServerModalOpen(true)}
+            className="flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            title="Địa chỉ máy chủ Backend"
+          >
+            <Server className="w-4 h-4 text-indigo-500" />
+            <span className="hidden md:inline">Máy chủ</span>
+          </button>
+
+          {/* AI Settings Button */}
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center space-x-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            className="flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
             title="Cài đặt kết nối AI & Giao diện"
           >
             <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400" />
             <span className="hidden sm:inline">Cài đặt AI</span>
           </button>
 
+          {/* Vocab Modal Button */}
           <button
             onClick={() => setIsVocabOpen(true)}
-            className="flex items-center space-x-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            className="hidden sm:flex items-center space-x-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
           >
             <BookOpen className="w-4 h-4 text-indigo-500" />
             <span>Sổ từ vựng & Anki</span>
           </button>
 
+          {/* Add Video Button */}
           <button
             onClick={() => setIsCreateOpen(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/20 transition"
+            className="flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/20 transition"
           >
             <Plus className="w-4 h-4" />
-            <span>Thêm video mới</span>
+            <span className="hidden xs:inline">Thêm video</span>
           </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col p-4 md:p-6">
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col p-3 sm:p-4 md:p-6 pb-20 sm:pb-6">
         {selectedProject ? (
-          /* Video Learning Room - Expanded & Balanced Layout */
-          <div className="flex-1 flex flex-col lg:flex-row gap-6 max-w-[1720px] mx-auto w-full items-stretch">
+          /* Video Learning Room - Responsive Layout */
+          <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 max-w-[1720px] mx-auto w-full items-stretch">
             {/* Left: Video Player */}
-            <div className="flex-1 flex flex-col space-y-3 h-[calc(100vh-130px)] min-h-[580px]">
+            <div className="w-full lg:flex-1 flex flex-col space-y-3 lg:h-[calc(100vh-130px)] lg:min-h-[580px]">
               <div className="flex items-center justify-between">
                 {editingProjectId === selectedProject.id ? (
                   <div className="flex items-center space-x-2 flex-1 max-w-xl">
@@ -301,20 +325,20 @@ export const App: React.FC = () => {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center space-x-2.5 max-w-xl group/edit">
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">
+                  <div className="flex items-center space-x-2 max-w-xl group/edit min-w-0">
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">
                       {selectedProject.title}
                     </h2>
                     <button
                       onClick={(e) => handleStartEdit(selectedProject, e)}
                       title="Đổi tên video"
-                      className="opacity-60 hover:opacity-100 p-1 rounded-md text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                      className="opacity-60 hover:opacity-100 p-1 rounded-md text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex-shrink-0"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
-                <span className="text-xs px-2.5 py-1 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 rounded-full font-medium border border-indigo-500/20">
+                <span className="text-[11px] sm:text-xs px-2.5 py-1 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 rounded-full font-medium border border-indigo-500/20 flex-shrink-0 ml-2">
                   {selectedProject.source_lang.toUpperCase()} ➔ {selectedProject.target_lang.toUpperCase()}
                 </span>
               </div>
@@ -343,13 +367,13 @@ export const App: React.FC = () => {
               />
             </div>
 
-            {/* Right: Transcript Sidebar - Widened & Lengthened */}
-            <div className="w-full lg:w-[480px] xl:w-[540px] 2xl:w-[580px] flex-shrink-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden h-[calc(100vh-130px)] min-h-[580px] shadow-xl">
-              <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+            {/* Right: Transcript Sidebar */}
+            <div className="w-full lg:w-[480px] xl:w-[540px] 2xl:w-[580px] flex-shrink-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden h-[460px] lg:h-[calc(100vh-130px)] lg:min-h-[580px] shadow-xl">
+              <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-white">Lời thoại & Phụ đề</h3>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                    Bấm vào câu để nhảy tới · Bấm vào từ để tra nghĩa
+                    Chạm câu để nhảy tới · Chạm từ để tra nghĩa
                   </p>
                 </div>
                 <span className="text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700">
@@ -372,33 +396,54 @@ export const App: React.FC = () => {
           </div>
         ) : (
           /* Library View */
-          <div className="max-w-6xl mx-auto w-full space-y-6">
+          <div className="max-w-6xl mx-auto w-full space-y-5 sm:space-y-6">
+            {/* Backend connection warning banner */}
+            {hasConnectionError && (
+              <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/80 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200 text-sm shadow-sm">
+                <div className="flex items-start space-x-3">
+                  <WifiOff className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">Chưa kết nối được máy chủ Backend MemoAI ({getApiBase()})</p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                      Nếu đang mở trên điện thoại, hãy đổi địa chỉ máy chủ thành IP của máy tính (ví dụ: <code className="bg-amber-200/50 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">http://192.168.1.x:8000</code>).
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsServerModalOpen(true)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold shadow-sm transition whitespace-nowrap"
+                >
+                  Cài đặt IP máy chủ
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Thư viện bài học</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Chọn một video để bắt đầu học hoặc bấm "Thêm video mới" để phân tích
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Thư viện bài học</h2>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Chọn một video để bắt đầu học hoặc bấm "Thêm video" để phân tích
                 </p>
               </div>
             </div>
 
             {projects.length === 0 ? (
-              <div className="py-24 text-center border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-3xl p-8 bg-white dark:bg-slate-900/50">
+              <div className="py-20 sm:py-24 text-center border-2 border-dashed border-slate-300 dark:border-slate-800 rounded-3xl p-6 sm:p-8 bg-white dark:bg-slate-900/50">
                 <Film className="w-12 h-12 text-slate-400 dark:text-slate-600 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">Chưa có video nào trong thư viện</h3>
-                <p className="text-sm text-slate-500 max-w-md mx-auto mt-1 mb-6">
-                  Bạn có thể thêm video bất kỳ từ YouTube Shorts, YouTube thông thường hoặc file trên máy tính của bạn.
+                <h3 className="text-base sm:text-lg font-bold text-slate-700 dark:text-slate-300">Chưa có video nào trong thư viện</h3>
+                <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto mt-1 mb-6">
+                  Bạn có thể thêm video từ YouTube, YouTube Shorts hoặc video có sẵn trong bộ nhớ thiết bị.
                 </p>
                 <button
                   onClick={() => setIsCreateOpen(true)}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/20 inline-flex items-center space-x-2 transition"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs sm:text-sm font-semibold shadow-lg shadow-indigo-600/20 inline-flex items-center space-x-2 transition"
                 >
                   <Plus className="w-4 h-4" />
                   <span>Thêm video đầu tiên</span>
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                 {projects.map((p) => (
                   <div
                     key={p.id}
@@ -410,7 +455,7 @@ export const App: React.FC = () => {
                         setIsErrorModalOpen(true);
                       }
                     }}
-                    className={`bg-white dark:bg-slate-900 border rounded-2xl p-5 flex flex-col justify-between transition relative overflow-hidden group shadow-sm dark:shadow-none ${
+                    className={`bg-white dark:bg-slate-900 border rounded-2xl p-4 sm:p-5 flex flex-col justify-between transition relative overflow-hidden group shadow-sm dark:shadow-none ${
                       p.status === "completed"
                         ? "border-slate-200 dark:border-slate-800 hover:border-indigo-500 hover:shadow-xl cursor-pointer"
                         : p.status === "error"
@@ -435,14 +480,14 @@ export const App: React.FC = () => {
                           <button
                             onClick={(e) => handleStartEdit(p, e)}
                             title="Đổi tên video"
-                            className="text-slate-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                            className="text-slate-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={(e) => handleDeleteProject(p.id, e)}
                             title="Xóa dự án"
-                            className="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                            className="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -488,7 +533,7 @@ export const App: React.FC = () => {
                       <p className="text-xs text-slate-500 truncate mt-1">{p.source_uri}</p>
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
+                    <div className="mt-5 pt-3.5 border-t border-slate-100 dark:border-slate-800/80">
                       {p.status === "processing" ? (
                         <div className="space-y-2">
                           <div className="flex justify-between text-xs">
@@ -531,7 +576,7 @@ export const App: React.FC = () => {
                               className="flex-1 py-1.5 px-2 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1 transition"
                             >
                               <FileText className="w-3.5 h-3.5" />
-                              <span>Xem chi tiết lỗi</span>
+                              <span>Xem lỗi</span>
                             </button>
                             <button
                               onClick={async (e) => {
@@ -561,6 +606,53 @@ export const App: React.FC = () => {
         )}
       </main>
 
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around py-1.5 px-2 shadow-xl">
+        <button
+          onClick={() => setSelectedProjectId(null)}
+          className={`flex flex-col items-center py-1 px-3 rounded-xl transition ${
+            !selectedProjectId
+              ? "text-indigo-600 dark:text-indigo-400 font-bold"
+              : "text-slate-500 dark:text-slate-400"
+          }`}
+        >
+          <Film className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Thư viện</span>
+        </button>
+
+        <button
+          onClick={() => setIsVocabOpen(true)}
+          className="flex flex-col items-center py-1 px-3 text-slate-500 dark:text-slate-400 rounded-xl transition"
+        >
+          <BookOpen className="w-5 h-5 text-indigo-500" />
+          <span className="text-[10px] mt-0.5">Sổ từ</span>
+        </button>
+
+        <button
+          onClick={() => setIsCreateOpen(true)}
+          className="flex items-center justify-center w-11 h-11 bg-indigo-600 text-white rounded-full shadow-lg shadow-indigo-600/30 -mt-3 transition active:scale-95"
+          aria-label="Thêm video mới"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+
+        <button
+          onClick={() => setIsServerModalOpen(true)}
+          className="flex flex-col items-center py-1 px-3 text-slate-500 dark:text-slate-400 rounded-xl transition"
+        >
+          <Server className="w-5 h-5 text-indigo-500" />
+          <span className="text-[10px] mt-0.5">Máy chủ</span>
+        </button>
+
+        <button
+          onClick={() => setIsSettingsOpen(true)}
+          className="flex flex-col items-center py-1 px-3 text-slate-500 dark:text-slate-400 rounded-xl transition"
+        >
+          <Settings className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Cài đặt</span>
+        </button>
+      </nav>
+
       {/* Modals */}
       <CreateModal
         isOpen={isCreateOpen}
@@ -583,6 +675,14 @@ export const App: React.FC = () => {
         viFontSize={viFontSize}
         setViFontSize={setViFontSize}
         activeSegment={segments.find((s) => currentTime >= s.start && currentTime <= s.end) || segments[0] || null}
+      />
+
+      <ServerAddressModal
+        isOpen={isServerModalOpen}
+        onClose={() => setIsServerModalOpen(false)}
+        onSaved={() => {
+          loadProjects();
+        }}
       />
 
       <WordPopup
