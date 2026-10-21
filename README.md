@@ -1,8 +1,9 @@
 # MemoAI 🎬🇯🇵🇻🇳
 
-> **Ứng dụng Desktop thông minh hỗ trợ học tiếng Nhật qua video với phụ đề song ngữ AI, nhận dạng giọng nói Offline/Cloud, Furigana tương tác, tra từ điển tức thì và xuất thẻ Anki.**
+> **Ứng dụng Đa nền tảng (Desktop & Android) thông minh hỗ trợ học tiếng Nhật qua video với phụ đề song ngữ AI, nhận dạng giọng nói Offline/Cloud, Furigana tương tác, tra từ điển tức thì và xuất thẻ Anki.**
 
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)]()
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-blue?style=flat-square)]()
+[![Android](https://img.shields.io/badge/Android-APK%20Available-green?style=flat-square&logo=android)]()
 [![Tauri](https://img.shields.io/badge/Tauri-v2-orange?style=flat-square&logo=tauri)]()
 [![React](https://img.shields.io/badge/React-19-61dafb?style=flat-square&logo=react)]()
 [![Python](https://img.shields.io/badge/Python-3.12%2B%20(uv)-3776ab?style=flat-square&logo=python)]()
@@ -52,21 +53,31 @@
 * Tự động hiển thị cách đọc Hiragana ngay trên đầu chữ Hán (Kanji) bằng thẻ `<ruby>` chuẩn xác.
 * Hiển thị đồng thời phiên âm Romaji cho người mới bắt đầu.
 
-### 6. 🔍 Tra từ điển tức thì (Click-to-lookup)
+### 6. 🔍 Tra từ điển tức thì (Click-to-lookup & Bottom Sheet)
 * Bấm trực tiếp vào bất kỳ từ tiếng Nhật nào trên video hoặc danh sách lời thoại để xem:
   * Cách đọc Kanji / Hiragana / Katakana / Romaji.
   * Cấp độ JLPT tương ứng (N5 -> N1).
   * Từ loại (Danh từ, Động từ, Tính từ,...).
   * Định nghĩa chi tiết bằng tiếng Việt.
+  * Phát âm chuẩn âm thanh tức thì.
 
 ### 7. 🔁 Công cụ luyện phát âm & Shadowing
 * **Lặp câu (A-B Loop)**: Lặp đi lặp lại một câu thoại đang chọn để luyện nghe bắt âm.
 * **Chế độ Shadowing**: Video tự động tạm dừng ở cuối mỗi câu thoại để bạn đọc nhại theo trước khi chuyển sang câu kế tiếp.
 * **Tùy biến hiển thị phụ đề**: Ẩn/hiện linh hoạt Furigana, Romaji, tiếng Nhật, tiếng Việt theo trình độ của người học.
+* **Tùy chỉnh cỡ chữ trực quan**: Tăng giảm kích thước chữ tiếng Nhật & tiếng Việt độc lập ngay trên trình phát video.
 
 ### 8. 🗂️ Sổ từ vựng & Xuất thẻ Anki (.apkg)
 * Lưu nhanh các từ mới kèm câu ngữ cảnh vào **Sổ từ vựng**.
 * Xuất file **Anki Deck (`.apkg`)** chuẩn hóa chỉ với 1 cú click chuột, có sẵn giao diện thẻ flashcard đẹp mắt để ôn tập ngắt quãng (SRS).
+
+### 9. 📱 Trải nghiệm Di động tối ưu (Android Native & Touch-First)
+* **Cử chỉ chạm đúp tua nhanh (Double-tap to Seek)**: Chạm đúp 2 lần bên trái để tua lùi 5s (`⏪ -5s`), chạm đúp bên phải để tua tới 5s (`+5s ⏩`) có hiệu ứng huy hiệu thời gian nổi tương tự YouTube.
+* **Tra từ vựng dạng Bottom Sheet**: Cửa sổ giải nghĩa từ điển trượt mượt mà từ đáy màn hình, không che khuất video, hỗ trợ thao tác một tay với nút phát âm và lưu Anki lớn.
+* **Chọn & Tải video trực tiếp từ điện thoại**: Chọn bất kỳ video nào (`.mp4`, `.mkv`, `.webm`, `.mov`) từ bộ nhớ điện thoại để tự động tải lên server xử lý phụ đề song ngữ.
+* **Thanh điều hướng tiện lợi (Mobile Bottom Navigation)**: Chuyển đổi nhanh giữa Thư viện, Sổ từ, Thêm bài học, Cài đặt máy chủ IP và Cài đặt AI chỉ bằng ngón tay cái.
+* **Chế độ Toàn màn hình xoay ngang (Landscape Fullscreen)**: Xem video tràn màn hình với phụ đề song ngữ rõ nét, thanh bật/tắt phụ đề cuộn ngang linh hoạt.
+* **Kết nối Server linh hoạt**: Hộp thoại cấu hình IP máy chủ (Backend URL) có sẵn nút chọn nhanh máy ảo Android (`10.0.2.2`) và kiểm tra độ trễ mạng (Live Ping).
 
 ---
 
@@ -76,7 +87,7 @@
 MemoAI/
 ├── backend/                  # Python 3.12 + FastAPI + SQLite + Faster-Whisper + Google GenAI + Japanese NLP
 │   ├── memoai/
-│   │   ├── api/server.py     # FastAPI REST Server: offline model APIs, project streaming, settings
+│   │   ├── api/server.py     # FastAPI Server: REST APIs, video upload stream, offline models, settings
 │   │   ├── services/
 │   │   │   ├── model_manager.py # Quản lý tải, hủy, xóa và kiểm tra mô hình offline (HuggingFace Hub)
 │   │   │   ├── hardware.py      # Tự động chẩn đoán phần cứng (CPU, RAM, GPU CUDA) và gợi ý model
@@ -90,12 +101,13 @@ MemoAI/
 │   │   └── cli.py            # Giao diện dòng lệnh CLI hỗ trợ cả Online & Offline ASR
 │   └── tests/                # Bộ kiểm thử tự động (pytest)
 ├── apps/
-│   └── desktop/              # Ứng dụng Desktop: Tauri v2 + React 19 + TypeScript + TailwindCSS
+│   └── desktop/              # Ứng dụng Desktop & Mobile: Tauri v2 + React 19 + TypeScript + TailwindCSS
 │       ├── src/
-│       │   ├── components/   # VideoPlayer, SubtitleOverlay, SettingsModal (Tab Offline ASR), CreateModal, AnkiModal
-│       │   ├── api/client.ts # API Client kết nối với Backend REST API
+│       │   ├── components/   # VideoPlayer (Touch), WordPopup (Bottom Sheet), ServerAddressModal, TranscriptList, CreateModal
+│       │   ├── api/client.ts # API Client hỗ trợ cấu hình động IP máy chủ & Upload media
 │       │   └── types.ts      # TypeScript interfaces (HardwareInfo, OfflineModelItem, v.v.)
-│       └── src-tauri/        # Cấu hình Desktop Native Window (Rust + WebView2)
+│       └── src-tauri/        # Cấu hình Native (Rust + WebView2 + Android NDK)
+│           └── gen/android/  # Mã nguồn Native Android Studio (Gradle, Kotlin, JNI libs)
 └── README.md
 ```
 
@@ -111,6 +123,13 @@ MemoAI/
 2. **Node.js**: Phiên bản `>= 18.x` và `npm`
 3. **FFmpeg**: Cần có trong `PATH` hệ thống để trích xuất âm thanh từ video.
 4. *(Tùy chọn cho Desktop Native)*: **Rust** toolchain (nếu muốn build binary Tauri).
+5. *(Tùy chọn cho Android Mobile)*:
+   * **Android SDK** (API level 24+) & **Android NDK** (khuyên dùng NDK r27: `27.0.12077973`).
+   * **JDK**: OpenJDK phiên bản 17 đến 25 (tương thích Gradle 9.6).
+   * Cài đặt Rust targets cho Android:
+     ```bash
+     rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+     ```
 
 ---
 
@@ -149,25 +168,56 @@ uv run memoai server
 > ]
 > ```
 
-### Bước 3: Khởi động Giao diện Desktop
+---
 
-Mở một cửa sổ terminal mới:
+### Bước 3: Khởi động Giao diện Desktop & Web
+
+Mở một cửa sổ terminal mới từ thư mục gốc của dự án:
 
 #### 👉 Cách A: Chạy cửa sổ Desktop Native (Tauri v2)
 ```powershell
-cd apps/desktop
-npm install
-npx tauri dev
+npm run desktop:app
+# hoặc: cd apps/desktop && npx tauri dev
 ```
 *(Cửa sổ ứng dụng Desktop native sẽ tự động mở lên)*
 
 #### 👉 Cách B: Chạy nhanh trên Trình duyệt Web (Phát triển / Preview)
 ```powershell
-cd apps/desktop
-npm install
-npm run dev
+npm run desktop:web
+# hoặc: cd apps/desktop && npm run dev
 ```
 *(Mở trình duyệt tại: `http://localhost:5173`)*
+
+---
+
+### Bước 4: Khởi động Ứng dụng Android (Tauri v2 Mobile)
+
+Ứng dụng Android chạy chung mã nguồn React 19 với bản Desktop, được tối ưu hóa giao diện cảm ứng và kết nối trực tiếp tới Backend qua mạng nội bộ hoặc máy ảo.
+
+#### 👉 Cách A: Chạy trực tiếp trên Điện thoại thật hoặc Máy ảo Android (Live Reload)
+1. Bật tính năng **USB Debugging** trên điện thoại Android và cắm cáp vào PC (hoặc khởi chạy Android Virtual Device / Emulator trong Android Studio).
+2. Chạy lệnh:
+   ```powershell
+   npm run android:dev
+   # hoặc: cd apps/desktop && npx tauri android dev
+   ```
+*(Ứng dụng sẽ tự động được biên dịch, cài đặt và mở lên trên màn hình điện thoại với tính năng Hot-Reload)*
+
+#### 👉 Cách B: Đóng gói file cài đặt APK độc lập
+```powershell
+npm run android:build
+# hoặc: cd apps/desktop && npx tauri android build --debug --apk --target aarch64
+```
+> File cài đặt `.apk` sẽ được tạo tại:
+> `apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`
+> Bạn có thể copy trực tiếp file này sang điện thoại Android để cài đặt.
+
+#### 🌐 Kết nối App Android tới Backend trên Máy tính:
+1. Đảm bảo điện thoại và máy tính kết nối chung mạng Wi-Fi (hoặc chạy máy ảo trên cùng máy).
+2. Mở app MemoAI trên điện thoại, bấm vào biểu tượng **"Máy chủ"** trên thanh điều hướng dưới đáy màn hình:
+   * **Nếu dùng máy ảo Android**: Bấm chọn nút gợi ý **`10.0.2.2 (Máy ảo Android)`**.
+   * **Nếu dùng điện thoại thật**: Nhập địa chỉ IPv4 của máy tính (ví dụ: `http://192.168.1.15:8000`).
+3. Bấm **"Kiểm tra kết nối"** (Ping) ➔ Khi thấy thông báo thành công, chọn **"Lưu địa chỉ"**. Toàn bộ thư viện bài học và tính năng phân tích video sẽ được đồng bộ ngay lập tức!
 
 ---
 
@@ -195,7 +245,7 @@ uv run memoai run --help
 
 ## ⚙️ Hướng dẫn Cấu hình Nhận dạng & Dịch thuật
 
-Bạn có thể thiết lập trực tiếp trong giao diện ứng dụng (nút **"Cài đặt AI"** góc trên bên phải):
+Bạn có thể thiết lập trực tiếp trong giao diện ứng dụng (nút **"Cài đặt AI"** góc trên bên phải hoặc trên thanh điều hướng di động):
 
 ### 1. Sử dụng Mô hình Offline (Faster-Whisper)
 1. Mở **Cài đặt** ➔ chọn tab **"Mô hình Offline (ASR)"**.
