@@ -7,6 +7,8 @@
     "server": "cd backend && uv run memoai server",
     "desktop:web": "cd apps/desktop && npm run dev",
     "desktop:app": "cd apps/desktop && npx tauri dev",
-    "desktop:build": "cd apps/desktop && npx tauri build"
+    "desktop:build": "cd apps/desktop && npx tauri build",
+    "android:dev": "cd apps/desktop && npx tauri android dev",
+    "android:build": "cd apps/desktop && npx tauri android build"
   }
 }
