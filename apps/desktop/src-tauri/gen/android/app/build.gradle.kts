@@ -18,7 +18,7 @@ android {
     compileSdk = 37
     namespace = "fujinet.vn.memoai"
     defaultConfig {
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
+        manifestPlaceholders["usesCleartextTraffic"] = "true"
         applicationId = "fujinet.vn.memoai"
         minSdk = 24
         targetSdk = 37

@@ -66,10 +66,10 @@ def test_server(
 
 @app.command()
 def server(
-    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host lắng nghe"),
+    host: str = typer.Option("0.0.0.0", "--host", "-h", help="Host lắng nghe (mặc định 0.0.0.0 để cho phép điện thoại trong mạng LAN kết nối)"),
     port: int = typer.Option(8000, "--port", "-p", help="Cổng port"),
 ):
-    """Khởi chạy MemoAI Backend API server (cho giao diện Desktop)."""
+    """Khởi chạy MemoAI Backend API server (cho giao diện Desktop & Mobile)."""
     import uvicorn
     console.print(f"[bold green]Khởi chạy MemoAI API Server tại:[/bold green] http://{host}:{port}")
     uvicorn.run("memoai.api.server:app", host=host, port=port, log_level="info")

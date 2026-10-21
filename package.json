@@ -4,7 +4,7 @@
   "private": true,
   "description": "MemoAI: Bilingual subtitle generator & language learning desktop app",
   "scripts": {
-    "server": "cd backend && uv run memoai server",
+    "server": "cd backend && uv run memoai server --host 0.0.0.0",
     "desktop:web": "cd apps/desktop && npm run dev",
     "desktop:app": "cd apps/desktop && npx tauri dev",
     "desktop:build": "cd apps/desktop && npx tauri build",
