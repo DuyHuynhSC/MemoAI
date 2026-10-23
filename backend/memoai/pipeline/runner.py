@@ -85,7 +85,13 @@ class PipelineRunner:
                 if asr_attempt > 1:
                     self.progress_cb(f"Nhận dạng giọng nói gặp lỗi, đang thử lại (lần {asr_attempt}/3)...", 0.40)
                     time.sleep(asr_attempt * 2)
-                raw_segments = self.asr_provider.transcribe(audio_path, language=self.src_lang)
+                try:
+                    raw_segments = self.asr_provider.transcribe(audio_path, language=self.src_lang, progress_cb=self.progress_cb)
+                except TypeError as te:
+                    if "progress_cb" in str(te):
+                        raw_segments = self.asr_provider.transcribe(audio_path, language=self.src_lang)
+                    else:
+                        raise te
                 if raw_segments:
                     break
             except Exception as e:

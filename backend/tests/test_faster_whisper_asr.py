@@ -143,3 +143,35 @@ def test_api_profile_test_faster_whisper():
     assert data["chat_ok"] is False  # Faster-Whisper is ASR only
     assert "Faster-Whisper" in data["message"]
     assert "base" in data["discovered_models"]
+
+
+def test_faster_whisper_transcribe_with_progress_callback(tmp_path: Path):
+    dummy_wav = tmp_path / "test.wav"
+    dummy_wav.write_bytes(b"RIFF" + b"\x00" * 100)
+
+    mock_seg = MagicMock()
+    mock_seg.start = 0.0
+    mock_seg.end = 10.0
+    mock_seg.text = "Xin chào"
+    mock_seg.words = []
+
+    mock_info = MagicMock()
+    mock_info.language = "vi"
+    mock_info.language_probability = 0.99
+    mock_info.duration = 10.0
+
+    with patch("faster_whisper.WhisperModel") as mock_model_cls:
+        mock_instance = MagicMock()
+        mock_instance.transcribe.return_value = ([mock_seg], mock_info)
+        mock_model_cls.return_value = mock_instance
+
+        provider = FasterWhisperASR(model_size_or_path="base", device="cpu", lazy_load=False)
+        cb_calls = []
+        def my_progress_cb(msg, pct):
+            cb_calls.append((msg, pct))
+
+        segments = provider.transcribe(dummy_wav, language="vi", progress_cb=my_progress_cb)
+        assert len(segments) == 1
+        assert len(cb_calls) >= 1
+        assert cb_calls[-1][1] == 0.70  # 0.40 + 1.0 * 0.30 = 0.70
+        assert "Nhận dạng giọng nói (vi)" in cb_calls[-1][0]

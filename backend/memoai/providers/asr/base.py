@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 from pydantic import BaseModel, Field
 
 
@@ -22,6 +23,11 @@ class ASRProvider(ABC):
     """Abstract Base Class for ASR (Speech-to-Text) providers."""
 
     @abstractmethod
-    def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+    def transcribe(
+        self,
+        audio_path: Path,
+        language: str = "ja",
+        progress_cb: Any | None = None,
+    ) -> list[Segment]:
         """Transcribe an audio file and return a list of timed segments."""
         pass

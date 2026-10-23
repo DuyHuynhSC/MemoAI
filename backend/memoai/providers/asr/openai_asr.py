@@ -1,3 +1,4 @@
+from typing import Any
 from pathlib import Path
 from openai import OpenAI
 from memoai.providers.asr.base import ASRProvider, Segment
@@ -27,7 +28,7 @@ class OpenAICompatASR(ASRProvider):
         )
 
 
-    def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+    def transcribe(self, audio_path: Path, language: str = "ja", progress_cb: Any | None = None) -> list[Segment]:
         import time
         response = None
         last_error = None

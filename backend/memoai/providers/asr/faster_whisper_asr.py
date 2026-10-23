@@ -150,7 +150,12 @@ class FasterWhisperASR(ASRProvider):
     def model(self):
         return self._ensure_model_loaded()
 
-    def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+    def transcribe(
+        self,
+        audio_path: Path,
+        language: str = "ja",
+        progress_cb: Any | None = None,
+    ) -> list[Segment]:
         """Transcribe an audio file and return a list of timed segments with word timestamps."""
         audio_file = Path(audio_path)
         if not audio_file.exists():
@@ -171,13 +176,16 @@ class FasterWhisperASR(ASRProvider):
             vad_parameters=self.vad_parameters,
         )
 
+        total_duration = getattr(info, "duration", 0.0) or 0.0
         logger.info(
-            f"FasterWhisper hoàn thành nhận dạng. Ngôn ngữ phát hiện: '{info.language}' "
-            f"(xác suất: {info.language_probability:.2f}), thời lượng: {info.duration:.2f}s"
+            f"FasterWhisper đã mở stream giải mã. Ngôn ngữ: '{info.language}' "
+            f"(xác suất: {info.language_probability:.2f}), thời lượng: {total_duration:.2f}s"
         )
 
         segments: list[Segment] = []
         seg_idx = 1
+        last_reported_time = 0.0
+
         for seg in segments_raw:
             clean_text = seg.text.strip()
             if not clean_text:
@@ -207,6 +215,21 @@ class FasterWhisperASR(ASRProvider):
                 )
             )
             seg_idx += 1
+
+            # Cập nhật tiến độ giải mã theo thời gian thực (từ 40% đến 70%)
+            if progress_cb and total_duration > 0:
+                cur_end = seg.end
+                if cur_end - last_reported_time >= 5.0 or cur_end >= total_duration:
+                    last_reported_time = cur_end
+                    ratio = min(1.0, cur_end / total_duration)
+                    current_pct = round(0.40 + ratio * 0.30, 2)
+                    mins_cur, secs_cur = divmod(int(cur_end), 60)
+                    mins_tot, secs_tot = divmod(int(total_duration), 60)
+                    time_str = f"{mins_cur:02d}:{secs_cur:02d} / {mins_tot:02d}:{secs_tot:02d}"
+                    progress_cb(
+                        f"Nhận dạng giọng nói ({language}): {time_str} ({int(current_pct * 100)}%)...",
+                        current_pct,
+                    )
 
         logger.info(f"Tổng hợp thành công {len(segments)} đoạn phụ đề từ FasterWhisper.")
         return segments

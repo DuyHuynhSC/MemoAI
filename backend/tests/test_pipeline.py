@@ -6,7 +6,7 @@ from memoai.pipeline.runner import PipelineRunner
 
 
 class DummyASR(ASRProvider):
-    def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+    def transcribe(self, audio_path: Path, language: str = "ja", progress_cb=None) -> list[Segment]:
         return [
             Segment(start=0.5, end=2.5, text="初めまして。"),
             Segment(start=3.0, end=5.5, text="私はアンです。"),

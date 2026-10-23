@@ -1,3 +1,4 @@
+from typing import Any
 import json
 import time
 import shutil
@@ -166,7 +167,7 @@ class GeminiASR(ASRProvider):
                 segments.append(Segment(start=s_start, end=s_end, text=s_text))
         return segments
 
-    def transcribe(self, audio_path: Path, language: str = "ja") -> list[Segment]:
+    def transcribe(self, audio_path: Path, language: str = "ja", progress_cb: Any | None = None) -> list[Segment]:
         from memoai.logger import get_logger
         logger = get_logger("memoai.asr.gemini")
 
