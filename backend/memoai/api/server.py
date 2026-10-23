@@ -84,7 +84,7 @@ def seed_default_profiles():
             session.commit()
             session.refresh(q_profile)
 
-        # 3. Ensure Faster-Whisper Offline profile exists
+        # 3. Ensure Faster-Whisper Offline profile exists as shared system profile (user_id = None)
         w_profile = session.exec(select(AIProfile).where(AIProfile.provider_type == "faster_whisper")).first()
         if not w_profile:
             w_profile = AIProfile(
@@ -93,10 +93,17 @@ def seed_default_profiles():
                 model="base",
                 can_asr=True,
                 can_translate=False,
+                user_id=None,
             )
             session.add(w_profile)
             session.commit()
             session.refresh(w_profile)
+        else:
+            if w_profile.user_id is not None or not w_profile.can_asr:
+                w_profile.user_id = None
+                w_profile.can_asr = True
+                session.add(w_profile)
+                session.commit()
 
         # 4. Ensure AppSettings has valid defaults pointing to valid profiles
         app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
@@ -740,6 +747,24 @@ def admin_delete_user(
 
 @app.get("/api/settings")
 def get_settings(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    # Ensure system Faster-Whisper offline profile exists and has user_id = None
+    w_profile = session.exec(select(AIProfile).where(AIProfile.provider_type == "faster_whisper")).first()
+    if not w_profile:
+        w_profile = AIProfile(
+            name="Faster-Whisper Offline (Cục bộ)",
+            provider_type="faster_whisper",
+            model="base",
+            can_asr=True,
+            can_translate=False,
+            user_id=None,
+        )
+        session.add(w_profile)
+        session.commit()
+    elif w_profile.user_id is not None or not w_profile.can_asr:
+        w_profile.user_id = None
+        w_profile.can_asr = True
+        session.add(w_profile)
+        session.commit()
     app_set = session.exec(select(AppSettings).where(AppSettings.user_id == current_user.id)).first()
     if not app_set:
         app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()

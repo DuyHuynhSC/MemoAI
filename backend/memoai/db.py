@@ -105,12 +105,33 @@ def init_db():
             session.add(admin_user)
             session.commit()
 
-    # 3. Backfill existing unassigned records to default user
+        # Ensure Faster-Whisper Offline profile exists as a shared system profile (user_id = None)
+        from memoai.models import AIProfile
+        w_profile = session.exec(select(AIProfile).where(AIProfile.provider_type == "faster_whisper")).first()
+        if not w_profile:
+            w_profile = AIProfile(
+                name="Faster-Whisper Offline (Cục bộ)",
+                provider_type="faster_whisper",
+                model="base",
+                can_asr=True,
+                can_translate=False,
+                user_id=None,
+            )
+            session.add(w_profile)
+            session.commit()
+        elif w_profile.user_id is not None or not w_profile.can_asr:
+            w_profile.user_id = None
+            w_profile.can_asr = True
+            session.add(w_profile)
+            session.commit()
+
+    # 3. Backfill existing unassigned records to default user (except shared system profiles)
     with engine.connect() as conn:
         try:
             conn.execute(text(f"UPDATE projects SET user_id = {default_uid} WHERE user_id IS NULL"))
             conn.execute(text(f"UPDATE vocabs SET user_id = {default_uid} WHERE user_id IS NULL"))
-            conn.execute(text(f"UPDATE ai_profiles SET user_id = {default_uid} WHERE user_id IS NULL"))
+            conn.execute(text(f"UPDATE ai_profiles SET user_id = {default_uid} WHERE user_id IS NULL AND provider_type != 'faster_whisper'"))
+            conn.execute(text("UPDATE ai_profiles SET user_id = NULL WHERE provider_type = 'faster_whisper'"))
             conn.execute(text(f"UPDATE app_settings SET user_id = {default_uid} WHERE user_id IS NULL"))
             conn.commit()
         except Exception:
