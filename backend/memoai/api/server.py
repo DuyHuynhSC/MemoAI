@@ -6,15 +6,17 @@ import threading
 import traceback
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Query, Request, UploadFile, File, Form, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 
 from memoai.db import init_db, get_session, engine
-from memoai.models import Project, SegmentRecord, Vocab, AIProfile, AppSettings
+from memoai.models import Project, SegmentRecord, Vocab, AIProfile, AppSettings, User
+from memoai.services.auth import hash_password, verify_password, create_access_token, decode_access_token
 from memoai.config import settings
 from memoai.logger import setup_logging, get_logger, ProjectLogger, read_project_log, get_project_log_path
 from memoai.network import (
@@ -148,6 +150,55 @@ app.add_middleware(
 _ja_pack = JapaneseLanguagePack()
 
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+security = HTTPBearer(auto_error=False)
+
+
+def get_current_user(
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
+    session: Session = Depends(get_session),
+) -> User:
+    if auth and auth.credentials:
+        payload = decode_access_token(auth.credentials)
+        if payload and "sub" in payload:
+            try:
+                uid = int(payload["sub"])
+                user = session.get(User, uid)
+                if user and user.is_active:
+                    return user
+            except (ValueError, TypeError):
+                pass
+            raise HTTPException(status_code=401, detail="Token không hợp lệ hoặc đã hết hạn")
+        raise HTTPException(status_code=401, detail="Token không hợp lệ hoặc đã hết hạn")
+
+    if x_user_id:
+        try:
+            uid = int(x_user_id)
+            user = session.get(User, uid)
+            if user and user.is_active:
+                return user
+        except (ValueError, TypeError):
+            pass
+
+    # Fallback to default user for backwards compatibility with test runners and local mode
+    default_user = session.exec(select(User).order_by(User.id)).first()
+    if default_user:
+        return default_user
+    raise HTTPException(status_code=401, detail="Chưa đăng nhập và không tìm thấy tài khoản mặc định")
+
+
 class CreateProjectRequest(BaseModel):
     url_or_path: str
     title: Optional[str] = None
@@ -224,18 +275,18 @@ class SaveCaCertRequest(BaseModel):
 
 def run_pipeline_task(project_id: int, req: CreateProjectRequest):
     """Background task to run audio extraction, ASR, translation and DB save."""
-    project_dir = settings.get_data_dir() / f"project_{project_id}"
-    project_dir.mkdir(parents=True, exist_ok=True)
-    log_path = project_dir / "pipeline.log"
-    logger = ProjectLogger(project_id=project_id, log_file=log_path)
-
-    logger.info(f"Bắt đầu tác vụ xử lý dự án {project_id}: {req.url_or_path}")
-
     with Session(engine) as session:
         project = session.get(Project, project_id)
         if not project:
-            logger.error(f"Không tìm thấy dự án {project_id} trong cơ sở dữ liệu.")
             return
+
+        user_id = project.user_id or 1
+        project_dir = settings.get_data_dir() / "users" / f"user_{user_id}" / f"project_{project_id}"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        log_path = project_dir / "pipeline.log"
+        logger = ProjectLogger(project_id=project_id, log_file=log_path)
+
+        logger.info(f"Bắt đầu tác vụ xử lý dự án {project_id} (user {user_id}): {req.url_or_path}")
 
         def update_progress(step: str, pct: float):
             with Session(engine) as sub_session:
@@ -249,31 +300,35 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
         try:
             update_progress("Đang khởi tạo pipeline...", 0.05)
 
-            # 1. Resolve ASR Provider (Strictly check can_asr capability)
+            # 1. Resolve ASR Provider (Strictly check can_asr capability & user isolation)
             asr_profile = None
             if req.asr_profile_id:
                 cand = session.get(AIProfile, req.asr_profile_id)
-                if cand:
-                    if cand.can_asr:
-                        asr_profile = cand
-                    else:
-                        logger.warning(
-                            f"[Pipeline ASR] AI Profile id={cand.id} ('{cand.name}') KHÔNG có tính năng nhận dạng giọng nói (can_asr=False). Bỏ qua profile này."
-                        )
+                if cand and cand.can_asr and (cand.user_id is None or cand.user_id == user_id):
+                    asr_profile = cand
+                elif cand and not cand.can_asr:
+                    logger.warning(
+                        f"[Pipeline ASR] AI Profile id={cand.id} ('{cand.name}') KHÔNG có tính năng nhận dạng giọng nói (can_asr=False). Bỏ qua profile này."
+                    )
 
-            # Fallback A: Default ASR Profile from Settings
+            # Fallback A: Default ASR Profile from User Settings or Global Settings
             if not asr_profile:
-                app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+                app_set = session.exec(select(AppSettings).where(AppSettings.user_id == user_id)).first()
+                if not app_set:
+                    app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
                 if app_set and app_set.default_asr_profile_id:
                     cand = session.get(AIProfile, app_set.default_asr_profile_id)
-                    if cand and cand.can_asr:
+                    if cand and cand.can_asr and (cand.user_id is None or cand.user_id == user_id):
                         asr_profile = cand
 
-            # Fallback B: Any DB Profile with can_asr=True (Prioritize Gemini)
+            # Fallback B: Any DB Profile belonging to user or system with can_asr=True (Prioritize Gemini)
             if not asr_profile:
                 asr_profile = session.exec(
                     select(AIProfile)
-                    .where(AIProfile.can_asr == True)
+                    .where(
+                        AIProfile.can_asr == True,
+                        or_(AIProfile.user_id == user_id, AIProfile.user_id == None),
+                    )
                     .order_by((AIProfile.provider_type == "gemini").desc(), AIProfile.id)
                 ).first()
 
@@ -311,31 +366,35 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 g_key = req.gemini_key or settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
                 asr = GeminiASR(api_key=g_key, model=actual_asr_model)
 
-            # 2. Resolve MT Provider (Strictly check can_translate capability)
+            # 2. Resolve MT Provider (Strictly check can_translate capability & user isolation)
             mt_profile = None
             if req.mt_profile_id:
                 cand = session.get(AIProfile, req.mt_profile_id)
-                if cand:
-                    if cand.can_translate:
-                        mt_profile = cand
-                    else:
-                        logger.warning(
-                            f"[Pipeline MT] AI Profile id={cand.id} ('{cand.name}') KHÔNG có tính năng dịch thuật (can_translate=False). Bỏ qua profile này."
-                        )
+                if cand and cand.can_translate and (cand.user_id is None or cand.user_id == user_id):
+                    mt_profile = cand
+                elif cand and not cand.can_translate:
+                    logger.warning(
+                        f"[Pipeline MT] AI Profile id={cand.id} ('{cand.name}') KHÔNG có tính năng dịch thuật (can_translate=False). Bỏ qua profile này."
+                    )
 
-            # Fallback A: Default MT Profile from Settings
+            # Fallback A: Default MT Profile from User Settings or Global Settings
             if not mt_profile:
-                app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+                app_set = session.exec(select(AppSettings).where(AppSettings.user_id == user_id)).first()
+                if not app_set:
+                    app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
                 if app_set and app_set.default_mt_profile_id:
                     cand = session.get(AIProfile, app_set.default_mt_profile_id)
-                    if cand and cand.can_translate:
+                    if cand and cand.can_translate and (cand.user_id is None or cand.user_id == user_id):
                         mt_profile = cand
 
-            # Fallback B: Any DB Profile with can_translate=True (Prioritize Gemini)
+            # Fallback B: Any DB Profile belonging to user or system with can_translate=True (Prioritize Gemini)
             if not mt_profile:
                 mt_profile = session.exec(
                     select(AIProfile)
-                    .where(AIProfile.can_translate == True)
+                    .where(
+                        AIProfile.can_translate == True,
+                        or_(AIProfile.user_id == user_id, AIProfile.user_id == None),
+                    )
                     .order_by((AIProfile.provider_type == "gemini").desc(), AIProfile.id)
                 ).first()
 
@@ -455,28 +514,144 @@ def health():
     return {"status": "ok", "app": "MemoAI Desktop"}
 
 
+# ==================== AUTHENTICATION & USERS ====================
+
+@app.post("/api/auth/register")
+def register_user(req: RegisterRequest, session: Session = Depends(get_session)):
+    username = req.username.strip().lower()
+    if not username:
+        raise HTTPException(status_code=400, detail="Tên đăng nhập không được để trống")
+    if len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="Mật khẩu phải từ 4 ký tự trở lên")
+
+    existing = session.exec(select(User).where(User.username == username)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Tên đăng nhập đã tồn tại")
+
+    user = User(
+        username=username,
+        hashed_password=hash_password(req.password),
+        full_name=req.full_name.strip() if req.full_name else None,
+        is_active=True,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    # Automatically create user-specific AI Profile (Gemini)
+    g_key = req.gemini_api_key.strip() if req.gemini_api_key else None
+    user_gemini = AIProfile(
+        user_id=user.id,
+        name=f"Google Gemini ({user.username})",
+        provider_type="gemini",
+        api_key=g_key,
+        model="gemini-2.5-flash",
+        can_asr=True,
+        can_translate=True,
+    )
+    session.add(user_gemini)
+    session.flush()
+
+    user_settings = AppSettings(
+        user_id=user.id,
+        default_asr_profile_id=user_gemini.id,
+        default_mt_profile_id=user_gemini.id,
+        default_translation_mode="learning",
+    )
+    session.add(user_settings)
+    session.commit()
+
+    token = create_access_token({"sub": str(user.id), "username": user.username})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+        },
+    }
+
+
+@app.post("/api/auth/login")
+def login_user(req: LoginRequest, session: Session = Depends(get_session)):
+    username = req.username.strip().lower()
+    user = session.exec(select(User).where(User.username == username)).first()
+    if not user or not verify_password(req.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Tên đăng nhập hoặc mật khẩu không chính xác")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Tài khoản này đã bị khóa")
+
+    token = create_access_token({"sub": str(user.id), "username": user.username})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "full_name": user.full_name,
+        },
+    }
+
+
+@app.get("/api/auth/me")
+def get_current_user_info(current_user: User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "full_name": current_user.full_name,
+        "created_at": current_user.created_at,
+    }
+
+
+@app.get("/api/auth/users")
+def list_available_users(session: Session = Depends(get_session)):
+    users = session.exec(select(User).where(User.is_active == True).order_by(User.id)).all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "full_name": u.full_name,
+            "created_at": u.created_at,
+        }
+        for u in users
+    ]
+
+
 # ==================== SETTINGS & PROFILES ====================
 
 @app.get("/api/settings")
-def get_settings(session: Session = Depends(get_session)):
-    app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+def get_settings(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    app_set = session.exec(select(AppSettings).where(AppSettings.user_id == current_user.id)).first()
     if not app_set:
-        app_set = AppSettings(id=1, default_translation_mode="learning")
-        session.add(app_set)
-        session.commit()
-        session.refresh(app_set)
-    profiles = session.exec(select(AIProfile).order_by(AIProfile.id)).all()
+        app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+        if not app_set:
+            app_set = AppSettings(user_id=current_user.id, default_translation_mode="learning")
+            session.add(app_set)
+            session.commit()
+            session.refresh(app_set)
+    profiles = session.exec(
+        select(AIProfile)
+        .where(or_(AIProfile.user_id == current_user.id, AIProfile.user_id == None))
+        .order_by(AIProfile.id)
+    ).all()
     return {
         "settings": app_set,
         "profiles": profiles,
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username,
+            "full_name": current_user.full_name,
+        },
     }
 
 
 @app.put("/api/settings")
-def update_settings(req: UpdateSettingsRequest, session: Session = Depends(get_session)):
-    app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
+def update_settings(req: UpdateSettingsRequest, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    app_set = session.exec(select(AppSettings).where(AppSettings.user_id == current_user.id)).first()
     if not app_set:
-        app_set = AppSettings(id=1)
+        app_set = AppSettings(user_id=current_user.id)
+        session.add(app_set)
     if req.default_asr_profile_id is not None:
         app_set.default_asr_profile_id = req.default_asr_profile_id
     if req.default_mt_profile_id is not None:
@@ -543,13 +718,18 @@ def upload_ca_cert(req: SaveCaCertRequest):
 
 
 @app.get("/api/settings/profiles")
-def list_profiles(session: Session = Depends(get_session)):
-    return session.exec(select(AIProfile).order_by(AIProfile.id)).all()
+def list_profiles(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(
+        select(AIProfile)
+        .where(or_(AIProfile.user_id == current_user.id, AIProfile.user_id == None))
+        .order_by(AIProfile.id)
+    ).all()
 
 
 @app.post("/api/settings/profiles")
-def create_profile(profile: AIProfile, session: Session = Depends(get_session)):
+def create_profile(profile: AIProfile, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     profile.id = None
+    profile.user_id = current_user.id
     session.add(profile)
     session.commit()
     session.refresh(profile)
@@ -557,10 +737,12 @@ def create_profile(profile: AIProfile, session: Session = Depends(get_session)):
 
 
 @app.put("/api/settings/profiles/{profile_id}")
-def update_profile(profile_id: int, updated: AIProfile, session: Session = Depends(get_session)):
+def update_profile(profile_id: int, updated: AIProfile, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     p = session.get(AIProfile, profile_id)
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if p.user_id and p.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền chỉnh sửa Profile này")
     p.name = updated.name
     p.provider_type = updated.provider_type
     p.api_key = updated.api_key
@@ -576,10 +758,12 @@ def update_profile(profile_id: int, updated: AIProfile, session: Session = Depen
 
 
 @app.delete("/api/settings/profiles/{profile_id}")
-def delete_profile(profile_id: int, session: Session = Depends(get_session)):
+def delete_profile(profile_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     p = session.get(AIProfile, profile_id)
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if p.user_id and p.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền xóa Profile này")
     session.delete(p)
     session.commit()
     return {"ok": True}
@@ -817,18 +1001,19 @@ def test_profile(req: TestProfileRequest):
 # ==================== PROJECTS ====================
 
 @app.get("/api/projects")
-def list_projects(session: Session = Depends(get_session)):
-    return session.exec(select(Project).order_by(Project.created_at.desc())).all()
+def list_projects(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(select(Project).where(Project.user_id == current_user.id).order_by(Project.created_at.desc())).all()
 
 
 @app.post("/api/projects")
-def create_project(req: CreateProjectRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+def create_project(req: CreateProjectRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     init_title = (
         req.title.strip()
         if req.title and req.title.strip()
         else (Path(req.url_or_path).stem if not req.url_or_path.startswith("http") else req.url_or_path.split("/")[-1])
     )
     project = Project(
+        user_id=current_user.id,
         title=init_title or "Untitled Video",
         source_type="url" if req.url_or_path.startswith("http") else "file",
         source_uri=req.url_or_path,
@@ -860,6 +1045,7 @@ async def upload_project_media(
     asr_profile_id: Optional[int] = Form(None),
     mt_profile_id: Optional[int] = Form(None),
     mode: str = Form("learning"),
+    current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     upload_dir = settings.get_data_dir() / "uploads"
@@ -873,6 +1059,7 @@ async def upload_project_media(
 
     init_title = title.strip() if title and title.strip() else Path(file.filename or "video.mp4").stem
     project = Project(
+        user_id=current_user.id,
         title=init_title or "Untitled Upload",
         source_type="file",
         source_uri=str(saved_path),
@@ -902,10 +1089,12 @@ async def upload_project_media(
 
 
 @app.get("/api/projects/{project_id}")
-def get_project(project_id: int, session: Session = Depends(get_session)):
+def get_project(project_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id and project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền truy cập bài học này")
 
     segments = session.exec(
         select(SegmentRecord).where(SegmentRecord.project_id == project_id).order_by(SegmentRecord.idx)
@@ -942,20 +1131,24 @@ def get_project(project_id: int, session: Session = Depends(get_session)):
 
 
 @app.delete("/api/projects/{project_id}")
-def delete_project(project_id: int, session: Session = Depends(get_session)):
+def delete_project(project_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id and project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền xóa bài học này")
     session.delete(project)
     session.commit()
     return {"ok": True}
 
 
 @app.patch("/api/projects/{project_id}")
-def update_project(project_id: int, req: UpdateProjectRequest, session: Session = Depends(get_session)):
+def update_project(project_id: int, req: UpdateProjectRequest, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id and project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền chỉnh sửa bài học này")
     if req.title is not None and req.title.strip():
         project.title = req.title.strip()
         session.add(project)
@@ -965,10 +1158,12 @@ def update_project(project_id: int, req: UpdateProjectRequest, session: Session 
 
 
 @app.get("/api/projects/{project_id}/logs")
-def get_project_logs(project_id: int, session: Session = Depends(get_session)):
+def get_project_logs(project_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id and project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền xem nhật ký bài học này")
     log_content = read_project_log(project_id)
     return {
         "project_id": project_id,
@@ -984,11 +1179,14 @@ def retry_project(
     project_id: int,
     background_tasks: BackgroundTasks,
     req_body: Optional[RetryProjectRequest] = None,
+    current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     project = session.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    if project.user_id and project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền thao tác trên bài học này")
 
     app_set = session.exec(select(AppSettings).where(AppSettings.id == 1)).first()
     default_asr_pid = app_set.default_asr_profile_id if app_set else None
@@ -1054,10 +1252,12 @@ def fetch_media_info_api(url: str = Query(...)):
 
 
 @app.get("/api/media/{project_id}")
-def stream_media(project_id: int, request: Request, session: Session = Depends(get_session)):
+def stream_media(project_id: int, request: Request, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     project = session.get(Project, project_id)
     if not project or not project.media_path or not Path(project.media_path).exists():
         raise HTTPException(status_code=404, detail="Media file not found")
+    if project.user_id and project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền truy cập video này")
 
     path = Path(project.media_path)
     file_size = path.stat().st_size
@@ -1097,13 +1297,14 @@ def api_lookup_word(q: str = Query(...), context: Optional[str] = Query(None)):
 
 
 @app.get("/api/vocab")
-def list_vocab(session: Session = Depends(get_session)):
-    return session.exec(select(Vocab).order_by(Vocab.created_at.desc())).all()
+def list_vocab(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(select(Vocab).where(Vocab.user_id == current_user.id).order_by(Vocab.created_at.desc())).all()
 
 
 @app.post("/api/vocab")
-def add_vocab(req: AddVocabRequest, session: Session = Depends(get_session)):
+def add_vocab(req: AddVocabRequest, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     vocab = Vocab(
+        user_id=current_user.id,
         word=req.word,
         reading=req.reading,
         romanized=req.romanized,
@@ -1120,22 +1321,24 @@ def add_vocab(req: AddVocabRequest, session: Session = Depends(get_session)):
 
 
 @app.delete("/api/vocab/{vocab_id}")
-def delete_vocab(vocab_id: int, session: Session = Depends(get_session)):
+def delete_vocab(vocab_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     vocab = session.get(Vocab, vocab_id)
     if not vocab:
         raise HTTPException(status_code=404, detail="Vocab not found")
+    if vocab.user_id and vocab.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền xóa từ vựng này")
     session.delete(vocab)
     session.commit()
     return {"ok": True}
 
 
 @app.get("/api/vocab/export/anki")
-def export_anki(session: Session = Depends(get_session)):
-    vocabs = session.exec(select(Vocab)).all()
+def export_anki(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    vocabs = session.exec(select(Vocab).where(Vocab.user_id == current_user.id)).all()
     if not vocabs:
         raise HTTPException(status_code=400, detail="Chưa có từ vựng nào trong danh sách.")
 
-    export_path = settings.get_data_dir() / "memoai_japanese_vocab.apkg"
+    export_path = settings.get_data_dir() / f"memoai_japanese_vocab_user_{current_user.id}.apkg"
     export_anki_deck(vocabs, output_path=export_path)
     return FileResponse(export_path, filename="memoai_japanese_vocab.apkg", media_type="application/octet-stream")
 

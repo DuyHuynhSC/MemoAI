@@ -18,9 +18,23 @@ import {
   FileText,
   Server,
   WifiOff,
+  User as UserIcon,
+  LogOut,
 } from "lucide-react";
-import type { Project, Segment, WordDefinition, AppTheme } from "./types";
-import { fetchProjects, fetchProject, deleteProject, updateProject, lookupWord, retryProject, getApiBase } from "./api/client";
+import type { Project, Segment, WordDefinition, AppTheme, User } from "./types";
+import {
+  fetchProjects,
+  fetchProject,
+  deleteProject,
+  updateProject,
+  lookupWord,
+  retryProject,
+  getApiBase,
+  getAuthUser,
+  setAuthUser,
+  logoutUser,
+  fetchCurrentUser,
+} from "./api/client";
 import { VideoPlayer } from "./components/VideoPlayer";
 import { TranscriptList } from "./components/TranscriptList";
 import { WordPopup } from "./components/WordPopup";
@@ -29,6 +43,7 @@ import { VocabModal } from "./components/VocabModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { ErrorLogModal } from "./components/ErrorLogModal";
 import { ServerAddressModal } from "./components/ServerAddressModal";
+import { AuthModal } from "./components/AuthModal";
 
 export const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -80,6 +95,36 @@ export const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem("memoai_vi_font_size", viFontSize.toString());
   }, [viFontSize]);
+
+  // User auth state
+  const [currentUser, setCurrentUser] = useState<User | null>(() => getAuthUser());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  useEffect(() => {
+    fetchCurrentUser()
+      .then((u) => {
+        setCurrentUser(u);
+        setAuthUser(u);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleUserChanged = (u: User) => {
+    setCurrentUser(u);
+    setSelectedProjectId(null);
+    setSelectedProject(null);
+    setSegments([]);
+    loadProjects();
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
+    setSelectedProjectId(null);
+    setSelectedProject(null);
+    setSegments([]);
+    loadProjects();
+  };
 
   // Modals
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -247,6 +292,30 @@ export const App: React.FC = () => {
               </>
             )}
           </button>
+
+          {/* User Profile Switcher */}
+          <div className="flex items-center space-x-1">
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              className="flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold border border-indigo-200 dark:border-indigo-800/70 transition"
+              title={currentUser ? `Đang đăng nhập: ${currentUser.username}` : "Đăng nhập / Đổi tài khoản"}
+            >
+              <UserIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span className="hidden sm:inline max-w-[100px] truncate">
+                {currentUser ? currentUser.username : "Tài khoản"}
+              </span>
+            </button>
+            {currentUser && (
+              <button
+                onClick={handleLogout}
+                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition"
+                title="Đăng xuất"
+                aria-label="Đăng xuất"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
 
           {/* Server IP config button */}
           <button
@@ -698,6 +767,13 @@ export const App: React.FC = () => {
         project={errorModalProject}
         onClose={() => setIsErrorModalOpen(false)}
         onRetried={() => loadProjects()}
+      />
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        onUserChanged={handleUserChanged}
       />
     </div>
   );

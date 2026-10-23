@@ -1,3 +1,16 @@
+export interface User {
+  id: number;
+  username: string;
+  full_name?: string | null;
+  created_at?: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+}
+
 export interface Token {
   surface: string;
   reading?: string;
@@ -19,6 +32,7 @@ export interface Segment {
 
 export interface Project {
   id: number;
+  user_id?: number;
   title: string;
   source_type: "url" | "file";
   source_uri: string;
@@ -40,6 +54,7 @@ export interface Project {
 
 export interface Vocab {
   id: number;
+  user_id?: number;
   word: string;
   reading?: string;
   romanized?: string;
@@ -65,6 +80,7 @@ export interface WordDefinition {
 
 export interface AIProfile {
   id?: number;
+  user_id?: number;
   name: string;
   provider_type: "gemini" | "openai_compat" | "faster_whisper";
   api_key?: string;
@@ -134,6 +150,7 @@ export interface OfflineModelProgress {
 
 export interface AppSettings {
   id: number;
+  user_id?: number;
   default_asr_profile_id?: number;
   default_mt_profile_id?: number;
   default_translation_mode: string;
@@ -185,4 +202,3 @@ export interface SubtitleSettings {
   jaFontSize: number;
   viFontSize: number;
 }
-

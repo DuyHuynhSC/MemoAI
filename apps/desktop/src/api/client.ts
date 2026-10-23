@@ -1,4 +1,14 @@
-import type { Project, Segment, Vocab, WordDefinition, AIProfile, AppSettings, ProfileTestResult } from "../types";
+import type {
+  Project,
+  Segment,
+  Vocab,
+  WordDefinition,
+  AIProfile,
+  AppSettings,
+  ProfileTestResult,
+  User,
+  AuthResponse,
+} from "../types";
 
 export const DEFAULT_API_BASE = "http://127.0.0.1:8000";
 
@@ -16,9 +26,114 @@ export function setApiBase(url: string) {
   }
 }
 
+// ==================== AUTH TOKEN MANAGEMENT ====================
+
+export function getAuthToken(): string | null {
+  if (typeof window !== "undefined") {
+    return localStorage.getItem("memoai_auth_token");
+  }
+  return null;
+}
+
+export function setAuthToken(token: string | null) {
+  if (typeof window !== "undefined") {
+    if (token) localStorage.setItem("memoai_auth_token", token);
+    else localStorage.removeItem("memoai_auth_token");
+  }
+}
+
+export function getAuthUser(): User | null {
+  if (typeof window !== "undefined") {
+    const raw = localStorage.getItem("memoai_auth_user");
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+export function setAuthUser(user: User | null) {
+  if (typeof window !== "undefined") {
+    if (user) localStorage.setItem("memoai_auth_user", JSON.stringify(user));
+    else localStorage.removeItem("memoai_auth_user");
+  }
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const token = getAuthToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+export async function registerUser(payload: {
+  username: string;
+  password: string;
+  full_name?: string;
+  gemini_api_key?: string;
+}): Promise<AuthResponse> {
+  const res = await fetch(`${getApiBase()}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Đăng ký thất bại");
+  }
+  const data: AuthResponse = await res.json();
+  setAuthToken(data.access_token);
+  setAuthUser(data.user);
+  return data;
+}
+
+export async function loginUser(payload: { username: string; password: string }): Promise<AuthResponse> {
+  const res = await fetch(`${getApiBase()}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Đăng nhập thất bại");
+  }
+  const data: AuthResponse = await res.json();
+  setAuthToken(data.access_token);
+  setAuthUser(data.user);
+  return data;
+}
+
+export async function fetchCurrentUser(): Promise<User> {
+  const res = await fetch(`${getApiBase()}/api/auth/me`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error("Chưa đăng nhập");
+  return res.json();
+}
+
+export async function fetchAllUsers(): Promise<User[]> {
+  const res = await fetch(`${getApiBase()}/api/auth/users`);
+  if (!res.ok) throw new Error("Không thể tải danh sách tài khoản");
+  return res.json();
+}
+
+export function logoutUser() {
+  setAuthToken(null);
+  setAuthUser(null);
+}
+
+// ==================== PROJECTS ====================
 
 export async function fetchProjects(): Promise<Project[]> {
-  const res = await fetch(`${getApiBase()}/api/projects`);
+  const res = await fetch(`${getApiBase()}/api/projects`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to load projects");
   return res.json();
 }
@@ -39,7 +154,7 @@ export async function createProject(payload: {
 }): Promise<Project> {
   const res = await fetch(`${getApiBase()}/api/projects`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to create project");
@@ -49,6 +164,7 @@ export async function createProject(payload: {
 export async function uploadProjectMedia(formData: FormData): Promise<Project> {
   const res = await fetch(`${getApiBase()}/api/projects/upload`, {
     method: "POST",
+    headers: getAuthHeaders(),
     body: formData,
   });
   if (!res.ok) {
@@ -61,7 +177,7 @@ export async function uploadProjectMedia(formData: FormData): Promise<Project> {
 export async function updateProject(id: number, payload: { title?: string }): Promise<Project> {
   const res = await fetch(`${getApiBase()}/api/projects/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to update project");
@@ -76,13 +192,18 @@ export async function fetchMediaInfo(url: string): Promise<{ title?: string; dur
 }
 
 export async function fetchProject(id: number): Promise<{ project: Project; segments: Segment[] }> {
-  const res = await fetch(`${getApiBase()}/api/projects/${id}`);
+  const res = await fetch(`${getApiBase()}/api/projects/${id}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to load project details");
   return res.json();
 }
 
 export async function deleteProject(id: number): Promise<void> {
-  const res = await fetch(`${getApiBase()}/api/projects/${id}`, { method: "DELETE" });
+  const res = await fetch(`${getApiBase()}/api/projects/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to delete project");
 }
 
@@ -93,7 +214,9 @@ export async function fetchProjectLogs(id: number): Promise<{
   error_msg?: string;
   logs: string;
 }> {
-  const res = await fetch(`${getApiBase()}/api/projects/${id}/logs`);
+  const res = await fetch(`${getApiBase()}/api/projects/${id}/logs`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to fetch project logs");
   return res.json();
 }
@@ -104,7 +227,7 @@ export async function retryProject(
 ): Promise<Project> {
   const res = await fetch(`${getApiBase()}/api/projects/${id}/retry`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload || {}),
   });
   if (!res.ok) throw new Error("Failed to retry project");
@@ -120,7 +243,9 @@ export async function lookupWord(q: string, context?: string): Promise<WordDefin
 }
 
 export async function fetchVocab(): Promise<Vocab[]> {
-  const res = await fetch(`${getApiBase()}/api/vocab`);
+  const res = await fetch(`${getApiBase()}/api/vocab`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to load vocab");
   return res.json();
 }
@@ -128,7 +253,7 @@ export async function fetchVocab(): Promise<Vocab[]> {
 export async function addVocab(payload: Partial<Vocab>): Promise<Vocab> {
   const res = await fetch(`${getApiBase()}/api/vocab`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to save vocab");
@@ -136,11 +261,18 @@ export async function addVocab(payload: Partial<Vocab>): Promise<Vocab> {
 }
 
 export async function deleteVocab(id: number): Promise<void> {
-  const res = await fetch(`${getApiBase()}/api/vocab/${id}`, { method: "DELETE" });
+  const res = await fetch(`${getApiBase()}/api/vocab/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to delete vocab");
 }
 
 export function getAnkiExportUrl(): string {
+  const token = getAuthToken();
+  if (token) {
+    return `${getApiBase()}/api/vocab/export/anki?token=${encodeURIComponent(token)}`;
+  }
   return `${getApiBase()}/api/vocab/export/anki`;
 }
 
@@ -150,8 +282,10 @@ export function getMediaUrl(projectId: number): string {
 
 // ==================== SETTINGS & PROFILES ====================
 
-export async function fetchSettings(): Promise<{ settings: AppSettings; profiles: AIProfile[] }> {
-  const res = await fetch(`${getApiBase()}/api/settings`);
+export async function fetchSettings(): Promise<{ settings: AppSettings; profiles: AIProfile[]; user?: User }> {
+  const res = await fetch(`${getApiBase()}/api/settings`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to fetch settings");
   return res.json();
 }
@@ -159,7 +293,7 @@ export async function fetchSettings(): Promise<{ settings: AppSettings; profiles
 export async function updateSettings(payload: Partial<AppSettings>): Promise<AppSettings> {
   const res = await fetch(`${getApiBase()}/api/settings`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to update settings");
@@ -167,7 +301,9 @@ export async function updateSettings(payload: Partial<AppSettings>): Promise<App
 }
 
 export async function fetchProfiles(): Promise<AIProfile[]> {
-  const res = await fetch(`${getApiBase()}/api/settings/profiles`);
+  const res = await fetch(`${getApiBase()}/api/settings/profiles`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to fetch profiles");
   return res.json();
 }
@@ -180,7 +316,7 @@ export async function saveProfile(profile: Partial<AIProfile>): Promise<AIProfil
   const method = isEdit ? "PUT" : "POST";
   const res = await fetch(url, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(profile),
   });
   if (!res.ok) throw new Error("Failed to save profile");
@@ -188,7 +324,10 @@ export async function saveProfile(profile: Partial<AIProfile>): Promise<AIProfil
 }
 
 export async function deleteProfile(id: number): Promise<void> {
-  const res = await fetch(`${getApiBase()}/api/settings/profiles/${id}`, { method: "DELETE" });
+  const res = await fetch(`${getApiBase()}/api/settings/profiles/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to delete profile");
 }
 
@@ -203,7 +342,7 @@ export async function testProfileConnection(payload: {
 }): Promise<ProfileTestResult> {
   const res = await fetch(`${getApiBase()}/api/settings/profiles/test`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to test connection");
@@ -220,7 +359,7 @@ export async function testNetworkConnection(payload: {
 }): Promise<import("../types").NetworkTestResult> {
   const res = await fetch(`${getApiBase()}/api/settings/test-network`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to test network connection");
@@ -230,10 +369,10 @@ export async function testNetworkConnection(payload: {
 export async function uploadCaCertificate(payload: {
   filename: string;
   content: string;
-  }): Promise<{ file_path: string; filename: string; size: number }> {
+}): Promise<{ file_path: string; filename: string; size: number }> {
   const res = await fetch(`${getApiBase()}/api/settings/upload-ca`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {

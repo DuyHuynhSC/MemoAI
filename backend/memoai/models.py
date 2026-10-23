@@ -3,10 +3,29 @@ from typing import Optional
 from sqlmodel import SQLModel, Field, Relationship
 
 
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    hashed_password: str
+    full_name: Optional[str] = None
+    is_active: bool = Field(default=True)
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+
+    projects: list["Project"] = Relationship(back_populates="user", cascade_delete=True)
+    ai_profiles: list["AIProfile"] = Relationship(back_populates="user", cascade_delete=True)
+    vocabs: list["Vocab"] = Relationship(back_populates="user", cascade_delete=True)
+    settings: list["AppSettings"] = Relationship(back_populates="user", cascade_delete=True)
+
+
 class Project(SQLModel, table=True):
     __tablename__ = "projects"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
     title: str = Field(index=True)
     source_type: str = Field(default="url")  # "url" or "file"
     source_uri: str
@@ -29,6 +48,7 @@ class Project(SQLModel, table=True):
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
+    user: Optional[User] = Relationship(back_populates="projects")
     segments: list["SegmentRecord"] = Relationship(back_populates="project", cascade_delete=True)
 
 
@@ -52,6 +72,7 @@ class Vocab(SQLModel, table=True):
     __tablename__ = "vocabs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
     word: str = Field(index=True)
     reading: Optional[str] = None
     romanized: Optional[str] = None
@@ -64,13 +85,16 @@ class Vocab(SQLModel, table=True):
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
+    user: Optional[User] = Relationship(back_populates="vocabs")
+
 
 class AIProfile(SQLModel, table=True):
     __tablename__ = "ai_profiles"
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
     name: str = Field(index=True)
-    provider_type: str = Field(default="gemini")  # "gemini", "openai_compat"
+    provider_type: str = Field(default="gemini")  # "gemini", "openai_compat", "faster_whisper"
     api_key: Optional[str] = None
     base_url: Optional[str] = None  # e.g. http://localhost:11434/v1
     model: str = Field(default="gemini-2.5-flash")
@@ -81,11 +105,14 @@ class AIProfile(SQLModel, table=True):
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
+    user: Optional[User] = Relationship(back_populates="ai_profiles")
+
 
 class AppSettings(SQLModel, table=True):
     __tablename__ = "app_settings"
 
-    id: int = Field(default=1, primary_key=True)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
     default_asr_profile_id: Optional[int] = None
     default_mt_profile_id: Optional[int] = None
     default_translation_mode: str = Field(default="learning")
@@ -98,3 +125,4 @@ class AppSettings(SQLModel, table=True):
     ca_cert_path: Optional[str] = Field(default=None)
     insecure_skip_verify: bool = Field(default=False)
 
+    user: Optional[User] = Relationship(back_populates="settings")
