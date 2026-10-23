@@ -25,6 +25,10 @@ import {
   Play,
   Ban,
   HardDrive,
+  ShieldCheck,
+  KeyRound,
+  UserCheck,
+  UserX,
 } from "lucide-react";
 import {
   fetchSettings,
@@ -39,6 +43,10 @@ import {
   cancelOfflineModelDownload,
   deleteOfflineModel,
   quickTestOfflineModel,
+  fetchAdminUsers,
+  updateAdminUser,
+  deleteAdminUser,
+  getAuthUser,
 } from "../api/client";
 import type {
   AIProfile,
@@ -48,11 +56,13 @@ import type {
   ProfileTestResult,
   Segment,
   OfflineModelsResponse,
+  User,
 } from "../types";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  currentUser?: User | null;
   theme?: AppTheme;
   setTheme?: (t: AppTheme) => void;
   jaFontSize?: number;
@@ -65,6 +75,7 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
+  currentUser,
   theme = "dark",
   setTheme,
   jaFontSize = 26,
@@ -73,7 +84,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   setViFontSize,
   activeSegment,
 }) => {
-  const [activeTab, setActiveTab] = useState<"defaults" | "profiles" | "appearance" | "network" | "offline_asr">("defaults");
+  const [activeTab, setActiveTab] = useState<"defaults" | "profiles" | "appearance" | "network" | "offline_asr" | "users">("defaults");
+
+  // Admin Users tab state
+  const [adminUsers, setAdminUsers] = useState<User[]>([]);
+  const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
+  const [adminUserMsg, setAdminUserMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [editingTargetUser, setEditingTargetUser] = useState<User | null>(null);
+  const [editUserFullName, setEditUserFullName] = useState("");
+  const [editUserRole, setEditUserRole] = useState<"admin" | "user">("user");
+  const [editUserPassword, setEditUserPassword] = useState("");
+  const [editUserIsActive, setEditUserIsActive] = useState(true);
+  const [savingAdminUser, setSavingAdminUser] = useState(false);
+
+  const activeUser = currentUser || getAuthUser();
+  const isAdmin = activeUser?.role === "admin";
+
+  const loadAdminUsersData = async () => {
+    if (!isAdmin) return;
+    setLoadingAdminUsers(true);
+    try {
+      const data = await fetchAdminUsers();
+      setAdminUsers(data);
+    } catch (err: any) {
+      setAdminUserMsg({ type: "error", text: err.message || "Lỗi tải danh sách người dùng" });
+    } finally {
+      setLoadingAdminUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && activeTab === "users" && isAdmin) {
+      loadAdminUsersData();
+    }
+  }, [isOpen, activeTab, isAdmin]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -446,6 +490,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             Mạng & Proxy (Corporate)
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setActiveTab("users");
+                setEditingProfile(null);
+              }}
+              className={`pb-3 text-sm font-semibold transition border-b-2 flex items-center space-x-1.5 ${
+                activeTab === "users"
+                  ? "border-amber-500 text-amber-600 dark:text-amber-400"
+                  : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4 text-amber-500" />
+              <span>Quản lý Người dùng ({adminUsers.length || "Admin"})</span>
+            </button>
+          )}
         </div>
 
 
@@ -1781,6 +1841,272 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       );
                     })
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Admin Users Tab Content */}
+            {activeTab === "users" && isAdmin && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-700/60">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-amber-500" />
+                      Danh sách tài khoản & Phân quyền hệ thống
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Quản trị viên có toàn quyền sửa thông tin, đặt lại mật khẩu, phân vai trò hoặc xóa tài khoản.
+                    </p>
+                  </div>
+                  <button
+                    onClick={loadAdminUsersData}
+                    disabled={loadingAdminUsers}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 transition"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingAdminUsers ? "animate-spin" : ""}`} />
+                    <span>Làm mới</span>
+                  </button>
+                </div>
+
+                {adminUserMsg && (
+                  <div
+                    className={`p-3 rounded-xl text-xs flex items-center justify-between ${
+                      adminUserMsg.type === "success"
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
+                        : "bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800"
+                    }`}
+                  >
+                    <span>{adminUserMsg.text}</span>
+                    <button onClick={() => setAdminUserMsg(null)} className="hover:opacity-75">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Edit User Form / Modal */}
+                {editingTargetUser && (
+                  <div className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 space-y-3 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                        <Edit2 className="w-3.5 h-3.5" />
+                        Chỉnh sửa tài khoản: <span className="font-mono text-indigo-600 dark:text-indigo-400">{editingTargetUser.username}</span>
+                      </h4>
+                      <button
+                        onClick={() => setEditingTargetUser(null)}
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                          Họ và tên
+                        </label>
+                        <input
+                          type="text"
+                          value={editUserFullName}
+                          onChange={(e) => setEditUserFullName(e.target.value)}
+                          placeholder="Họ và tên hiển thị..."
+                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                          Vai trò (Role)
+                        </label>
+                        <select
+                          value={editUserRole}
+                          onChange={(e) => setEditUserRole(e.target.value as "admin" | "user")}
+                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        >
+                          <option value="user">Người dùng (User)</option>
+                          <option value="admin">Quản trị viên (Admin)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1">
+                          <KeyRound className="w-3.5 h-3.5 text-amber-500" />
+                          <span>Đặt lại mật khẩu mới (Bỏ trống nếu không đổi)</span>
+                        </label>
+                        <input
+                          type="password"
+                          value={editUserPassword}
+                          onChange={(e) => setEditUserPassword(e.target.value)}
+                          placeholder="Nhập mật khẩu mới..."
+                          className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                          Trạng thái tài khoản
+                        </label>
+                        <div className="flex items-center gap-3 pt-1">
+                          <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                            <input
+                              type="radio"
+                              name="is_active"
+                              checked={editUserIsActive}
+                              onChange={() => setEditUserIsActive(true)}
+                              className="text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span className="text-emerald-700 dark:text-emerald-400 font-medium">Hoạt động</span>
+                          </label>
+                          <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                            <input
+                              type="radio"
+                              name="is_active"
+                              checked={!editUserIsActive}
+                              onChange={() => setEditUserIsActive(false)}
+                              className="text-red-600 focus:ring-red-500"
+                            />
+                            <span className="text-red-700 dark:text-red-400 font-medium">Khóa tài khoản</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingTargetUser(null)}
+                        className="px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingAdminUser}
+                        onClick={async () => {
+                          setSavingAdminUser(true);
+                          setAdminUserMsg(null);
+                          try {
+                            await updateAdminUser(editingTargetUser.id, {
+                              full_name: editUserFullName,
+                              role: editUserRole,
+                              password: editUserPassword.trim() || undefined,
+                              is_active: editUserIsActive,
+                            });
+                            setAdminUserMsg({ type: "success", text: `Đã cập nhật thành công tài khoản ${editingTargetUser.username}` });
+                            setEditingTargetUser(null);
+                            loadAdminUsersData();
+                          } catch (err: any) {
+                            setAdminUserMsg({ type: "error", text: err.message || "Lỗi cập nhật người dùng" });
+                          } finally {
+                            setSavingAdminUser(false);
+                          }
+                        }}
+                        className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-sm flex items-center gap-1.5"
+                      >
+                        {savingAdminUser ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                        <span>Lưu thay đổi</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Users Table */}
+                <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/60 shadow-sm">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-semibold">
+                      <tr>
+                        <th className="py-2.5 px-3">Tài khoản (Username)</th>
+                        <th className="py-2.5 px-3">Họ và tên</th>
+                        <th className="py-2.5 px-3">Vai trò</th>
+                        <th className="py-2.5 px-3">Trạng thái</th>
+                        <th className="py-2.5 px-3 text-center">Số bài học</th>
+                        <th className="py-2.5 px-3 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {adminUsers.map((u) => {
+                        const isSelf = activeUser?.id === u.id;
+                        return (
+                          <tr key={u.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                            <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-white flex items-center gap-1.5">
+                              <span>{u.username}</span>
+                              {isSelf && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold">
+                                  Bạn
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 dark:text-slate-300">
+                              {u.full_name || <span className="text-slate-400 italic">Chưa đặt</span>}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {u.role === "admin" ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700/50">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  Admin
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  User
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {u.is_active !== false ? (
+                                <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                                  <UserCheck className="w-3.5 h-3.5" />
+                                  Hoạt động
+                                </span>
+                              ) : (
+                                <span className="text-red-500 dark:text-red-400 font-medium flex items-center gap-1">
+                                  <UserX className="w-3.5 h-3.5" />
+                                  Đã khóa
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center text-slate-600 dark:text-slate-400 font-mono">
+                              {u.project_count || 0}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingTargetUser(u);
+                                    setEditUserFullName(u.full_name || "");
+                                    setEditUserRole(u.role || "user");
+                                    setEditUserPassword("");
+                                    setEditUserIsActive(u.is_active !== false);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition"
+                                  title="Chỉnh sửa & Đặt lại mật khẩu"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                {!isSelf && (
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`Bạn có chắc chắn muốn xóa tài khoản '${u.username}' cùng toàn bộ bài học và dữ liệu liên quan không?`)) {
+                                        try {
+                                          await deleteAdminUser(u.id);
+                                          setAdminUserMsg({ type: "success", text: `Đã xóa tài khoản ${u.username}` });
+                                          loadAdminUsersData();
+                                        } catch (err: any) {
+                                          setAdminUserMsg({ type: "error", text: err.message || "Lỗi khi xóa người dùng" });
+                                        }
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition"
+                                    title="Xóa tài khoản"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}

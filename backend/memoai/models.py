@@ -10,6 +10,7 @@ class User(SQLModel, table=True):
     username: str = Field(index=True, unique=True)
     hashed_password: str
     full_name: Optional[str] = None
+    role: str = Field(default="user")  # "admin" or "user"
     is_active: bool = Field(default=True)
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)

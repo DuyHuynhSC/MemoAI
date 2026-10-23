@@ -11,25 +11,16 @@ engine = create_engine(f"sqlite:///{DB_PATH}", echo=False, connect_args={"check_
 
 def init_db():
     SQLModel.metadata.create_all(engine)
-    
-    # 1. Ensure a default user exists for backwards compatibility
-    with Session(engine) as session:
-        default_user = session.exec(select(User).where(User.username == "default")).first()
-        if not default_user:
-            default_user = User(
-                username="default",
-                hashed_password=hash_password("memoai123"),
-                full_name="Default User",
-                is_active=True,
-            )
-            session.add(default_user)
-            session.commit()
-            session.refresh(default_user)
-        default_uid = default_user.id or 1
 
-    # 2. Auto-migrate SQLite schema
+    # 1. Auto-migrate SQLite schema columns
     with engine.connect() as conn:
         try:
+            # Auto-migrate User columns (role)
+            cursor_u = conn.execute(text("PRAGMA table_info(users)"))
+            existing_u_cols = {row[1] for row in cursor_u.fetchall()}
+            if "role" not in existing_u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'user'"))
+
             # Auto-migrate AppSettings columns
             cursor = conn.execute(text("PRAGMA table_info(app_settings)"))
             existing_cols = {row[1] for row in cursor.fetchall()}
@@ -77,12 +68,50 @@ def init_db():
             if "user_id" not in existing_v_cols:
                 conn.execute(text("ALTER TABLE vocabs ADD COLUMN user_id INTEGER DEFAULT NULL"))
 
-            # Backfill existing unassigned records to default user
+            conn.commit()
+        except Exception:
+            pass
+
+    # 2. Ensure default user and admin user exist
+    with Session(engine) as session:
+        default_user = session.exec(select(User).where(User.username == "default")).first()
+        if not default_user:
+            default_user = User(
+                username="default",
+                hashed_password=hash_password("memoai123"),
+                full_name="Default User",
+                role="user",
+                is_active=True,
+            )
+            session.add(default_user)
+            session.commit()
+            session.refresh(default_user)
+        default_uid = default_user.id or 1
+
+        admin_user = session.exec(select(User).where(User.username == "admin")).first()
+        if not admin_user:
+            admin_user = User(
+                username="admin",
+                hashed_password=hash_password("admin123"),
+                full_name="System Administrator",
+                role="admin",
+                is_active=True,
+            )
+            session.add(admin_user)
+            session.commit()
+            session.refresh(admin_user)
+        elif admin_user.role != "admin":
+            admin_user.role = "admin"
+            session.add(admin_user)
+            session.commit()
+
+    # 3. Backfill existing unassigned records to default user
+    with engine.connect() as conn:
+        try:
             conn.execute(text(f"UPDATE projects SET user_id = {default_uid} WHERE user_id IS NULL"))
             conn.execute(text(f"UPDATE vocabs SET user_id = {default_uid} WHERE user_id IS NULL"))
             conn.execute(text(f"UPDATE ai_profiles SET user_id = {default_uid} WHERE user_id IS NULL"))
             conn.execute(text(f"UPDATE app_settings SET user_id = {default_uid} WHERE user_id IS NULL"))
-
             conn.commit()
         except Exception:
             pass

@@ -441,3 +441,44 @@ export async function quickTestOfflineModel(modelId: string): Promise<{
   if (!res.ok) throw new Error(data.detail || "Quick test failed");
   return data;
 }
+
+
+// ==================== ADMIN USER MANAGEMENT ====================
+
+export async function fetchAdminUsers(): Promise<User[]> {
+  const res = await fetch(`${getApiBase()}/api/admin/users`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Không thể tải danh sách người dùng");
+  }
+  return res.json();
+}
+
+export async function updateAdminUser(
+  userId: number,
+  payload: { full_name?: string; role?: "admin" | "user"; password?: string; is_active?: boolean }
+): Promise<User> {
+  const res = await fetch(`${getApiBase()}/api/admin/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Không thể cập nhật người dùng");
+  }
+  return res.json();
+}
+
+export async function deleteAdminUser(userId: number): Promise<void> {
+  const res = await fetch(`${getApiBase()}/api/admin/users/${userId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Không thể xóa người dùng");
+  }
+}

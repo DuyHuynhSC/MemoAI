@@ -737,6 +737,7 @@ export const App: React.FC = () => {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        currentUser={currentUser}
         theme={theme}
         setTheme={setTheme}
         jaFontSize={jaFontSize}

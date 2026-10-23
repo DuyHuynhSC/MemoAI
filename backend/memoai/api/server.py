@@ -199,6 +199,22 @@ def get_current_user(
     raise HTTPException(status_code=401, detail="Chưa đăng nhập và không tìm thấy tài khoản mặc định")
 
 
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    if getattr(current_user, "role", "user") != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Chỉ quản trị viên (Admin) mới có quyền thực hiện thao tác này",
+        )
+    return current_user
+
+
+class AdminUpdateUserRequest(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class CreateProjectRequest(BaseModel):
     url_or_path: str
     title: Optional[str] = None
@@ -569,6 +585,7 @@ def register_user(req: RegisterRequest, session: Session = Depends(get_session))
             "id": user.id,
             "username": user.username,
             "full_name": user.full_name,
+            "role": user.role,
         },
     }
 
@@ -590,6 +607,7 @@ def login_user(req: LoginRequest, session: Session = Depends(get_session)):
             "id": user.id,
             "username": user.username,
             "full_name": user.full_name,
+            "role": user.role,
         },
     }
 
@@ -600,6 +618,7 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "username": current_user.username,
         "full_name": current_user.full_name,
+        "role": current_user.role,
         "created_at": current_user.created_at,
     }
 
@@ -612,10 +631,109 @@ def list_available_users(session: Session = Depends(get_session)):
             "id": u.id,
             "username": u.username,
             "full_name": u.full_name,
+            "role": u.role,
             "created_at": u.created_at,
         }
         for u in users
     ]
+
+
+# ==================== ADMIN USER MANAGEMENT ====================
+
+@app.get("/api/admin/users")
+def admin_list_users(
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    users = session.exec(select(User).order_by(User.id)).all()
+    results = []
+    for u in users:
+        proj_count = len(session.exec(select(Project.id).where(Project.user_id == u.id)).all())
+        results.append({
+            "id": u.id,
+            "username": u.username,
+            "full_name": u.full_name,
+            "role": u.role,
+            "is_active": u.is_active,
+            "created_at": u.created_at,
+            "project_count": proj_count,
+        })
+    return results
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(
+    user_id: int,
+    req: AdminUpdateUserRequest,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+
+    if user_id == admin.id:
+        if req.is_active is False:
+            raise HTTPException(status_code=400, detail="Không thể tự khóa tài khoản của chính mình")
+        if req.role and req.role != "admin":
+            other_admins = session.exec(
+                select(User).where(User.role == "admin", User.id != admin.id, User.is_active == True)
+            ).all()
+            if not other_admins:
+                raise HTTPException(status_code=400, detail="Hệ thống cần ít nhất một quản trị viên đang hoạt động")
+
+    if req.full_name is not None:
+        target.full_name = req.full_name.strip() if req.full_name.strip() else None
+
+    if req.role is not None:
+        if req.role not in ["admin", "user"]:
+            raise HTTPException(status_code=400, detail="Vai trò không hợp lệ (chỉ chấp nhận admin hoặc user)")
+        target.role = req.role
+
+    if req.password is not None:
+        if len(req.password.strip()) < 4:
+            raise HTTPException(status_code=400, detail="Mật khẩu mới phải từ 4 ký tự trở lên")
+        target.hashed_password = hash_password(req.password.strip())
+
+    if req.is_active is not None:
+        target.is_active = req.is_active
+
+    session.add(target)
+    session.commit()
+    session.refresh(target)
+
+    return {
+        "id": target.id,
+        "username": target.username,
+        "full_name": target.full_name,
+        "role": target.role,
+        "is_active": target.is_active,
+    }
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Không thể tự xóa tài khoản của chính mình")
+
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+
+    user_data_dir = settings.get_data_dir() / "users" / f"user_{user_id}"
+    if user_data_dir.exists():
+        try:
+            shutil.rmtree(user_data_dir)
+        except Exception:
+            pass
+
+    session.delete(target)
+    session.commit()
+    return {"ok": True, "message": f"Đã xóa thành công người dùng {target.username}"}
 
 
 # ==================== SETTINGS & PROFILES ====================
@@ -642,6 +760,7 @@ def get_settings(current_user: User = Depends(get_current_user), session: Sessio
             "id": current_user.id,
             "username": current_user.username,
             "full_name": current_user.full_name,
+            "role": current_user.role,
         },
     }
 

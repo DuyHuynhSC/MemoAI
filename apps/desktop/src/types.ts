@@ -2,6 +2,9 @@ export interface User {
   id: number;
   username: string;
   full_name?: string | null;
+  role?: "admin" | "user";
+  is_active?: boolean;
+  project_count?: number;
   created_at?: string;
 }
 
