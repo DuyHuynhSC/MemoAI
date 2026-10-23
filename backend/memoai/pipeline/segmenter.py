@@ -1,4 +1,3 @@
-import re
 from memoai.providers.asr.base import Segment
 
 
@@ -30,18 +29,12 @@ def clean_repeated_hallucinations(segments: list[Segment]) -> list[Segment]:
     return cleaned
 
 
-def normalize_segments(
-    segments: list[Segment],
-    max_duration: float = 7.0,
-    min_duration: float = 1.0,
-    sentence_delimiters: str = "。！？!?."
-) -> list[Segment]:
-    """Normalize, merge short sentence fragments and split overly long lines."""
+def normalize_segments(segments: list[Segment]) -> list[Segment]:
+    """Normalize and assign sequential IDs to segments."""
     cleaned = clean_repeated_hallucinations(segments)
     if not cleaned:
         return []
 
-    # Assign sequential IDs
     for idx, s in enumerate(cleaned, start=1):
         s.id = idx
 

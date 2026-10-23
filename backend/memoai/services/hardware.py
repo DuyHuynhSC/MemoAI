@@ -8,13 +8,6 @@ def get_system_ram_gb() -> tuple[float, float]:
     """Return (total_ram_gb, available_ram_gb).
     Uses psutil if available; otherwise falls back to OS-specific APIs with zero external dependencies.
     """
-    try:
-        import psutil
-        vm = psutil.virtual_memory()
-        return round(vm.total / (1024**3), 2), round(vm.available / (1024**3), 2)
-    except ImportError:
-        pass
-
     # Windows fallback via kernel32 GlobalMemoryStatusEx
     if sys.platform == "win32":
         try:

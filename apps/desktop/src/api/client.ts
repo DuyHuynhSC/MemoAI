@@ -16,7 +16,6 @@ export function setApiBase(url: string) {
   }
 }
 
-export const API_BASE = "http://127.0.0.1:8000";
 
 export async function fetchProjects(): Promise<Project[]> {
   const res = await fetch(`${getApiBase()}/api/projects`);

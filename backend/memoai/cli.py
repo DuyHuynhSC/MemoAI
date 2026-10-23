@@ -22,7 +22,6 @@ from memoai.providers.mt.gemini_mt import GeminiTranslator
 
 from memoai.providers.mt.openai_mt import OpenAICompatTranslator
 from memoai.pipeline.runner import PipelineRunner
-from memoai.languages.ja import JapaneseLanguagePack
 
 app = typer.Typer(
     name="memoai",

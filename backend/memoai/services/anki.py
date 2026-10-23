@@ -1,4 +1,3 @@
-import random
 from pathlib import Path
 import genanki
 from memoai.models import Vocab

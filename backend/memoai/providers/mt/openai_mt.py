@@ -1,7 +1,7 @@
 import json
 import re
 from openai import OpenAI
-from memoai.providers.mt.base import TranslatorProvider, TranslationBatch, TranslationItem
+from memoai.providers.mt.base import TranslatorProvider
 
 
 class OpenAICompatTranslator(TranslatorProvider):

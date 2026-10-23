@@ -1,6 +1,6 @@
 from pathlib import Path
 from openai import OpenAI
-from memoai.providers.asr.base import ASRProvider, Segment, WordTimestamp
+from memoai.providers.asr.base import ASRProvider, Segment
 
 
 class OpenAICompatASR(ASRProvider):

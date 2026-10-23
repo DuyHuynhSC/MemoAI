@@ -412,51 +412,29 @@ def run_pipeline_task(project_id: int, req: CreateProjectRequest):
                 session.commit()
 
             # 5. Populate segments into DB
-            ja_srt_path = out_files.get("src_srt")
-            vi_srt_path = out_files.get("tgt_srt")
+            segments = out_files.get("segments") or []
+            translations = out_files.get("translations") or []
 
-            if ja_srt_path and ja_srt_path.exists():
-                logger.info(f"Lưu phân đoạn phụ đề vào cơ sở dữ liệu: {ja_srt_path}")
-                content = ja_srt_path.read_text(encoding="utf-8")
-                vi_content = vi_srt_path.read_text(encoding="utf-8") if vi_srt_path and vi_srt_path.exists() else ""
+            logger.info(f"Lưu {len(segments)} phân đoạn phụ đề vào cơ sở dữ liệu.")
+            for i, s in enumerate(segments):
+                text = s.text.strip()
+                trans = translations[i].strip() if i < len(translations) else ""
+                ruby = _ja_pack.to_ruby_html(text) if req.source_lang == "ja" else text
+                romaji = _ja_pack.romanize(text) if req.source_lang == "ja" else ""
 
-                blocks = [b.strip() for b in content.split("\n\n") if b.strip()]
-                vi_blocks = [b.strip() for b in vi_content.split("\n\n") if b.strip()]
-
-                for i, b in enumerate(blocks):
-                    lines = b.splitlines()
-                    if len(lines) >= 3:
-                        idx = int(lines[0])
-                        times = lines[1].split(" --> ")
-                        def ts_to_sec(ts: str) -> float:
-                            pts = ts.strip().replace(",", ".").split(":")
-                            return float(pts[0]) * 3600 + float(pts[1]) * 60 + float(pts[2])
-                        start = ts_to_sec(times[0])
-                        end = ts_to_sec(times[1])
-                        text = " ".join(lines[2:]).strip()
-
-                        trans = ""
-                        if i < len(vi_blocks):
-                            v_lines = vi_blocks[i].splitlines()
-                            if len(v_lines) >= 3:
-                                trans = " ".join(v_lines[2:]).strip()
-
-                        ruby = _ja_pack.to_ruby_html(text) if req.source_lang == "ja" else text
-                        romaji = _ja_pack.romanize(text) if req.source_lang == "ja" else ""
-
-                        seg = SegmentRecord(
-                            project_id=project_id,
-                            idx=idx,
-                            start=start,
-                            end=end,
-                            text=text,
-                            translation=trans,
-                            ruby_html=ruby,
-                            romanized=romaji,
-                        )
-                        session.add(seg)
-                session.commit()
-                logger.info(f"Đã lưu thành công {len(blocks)} phân đoạn vào DB.")
+                seg = SegmentRecord(
+                    project_id=project_id,
+                    idx=i + 1,
+                    start=s.start,
+                    end=s.end,
+                    text=text,
+                    translation=trans,
+                    ruby_html=ruby,
+                    romanized=romaji,
+                )
+                session.add(seg)
+            session.commit()
+            logger.info(f"Đã lưu thành công {len(segments)} phân đoạn vào DB.")
 
         except Exception as e:
             tb = traceback.format_exc()

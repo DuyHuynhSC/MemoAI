@@ -8,7 +8,6 @@ class Token(BaseModel):
     lemma: str | None = None
     pos: str | None = None
     romanized: str | None = None
-    level: str | None = None
 
 
 class LanguagePack(ABC):

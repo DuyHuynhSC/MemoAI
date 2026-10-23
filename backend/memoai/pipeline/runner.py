@@ -3,13 +3,7 @@ from typing import Callable, Any
 from memoai.config import settings
 from memoai.media import is_url, download_media, extract_audio
 from memoai.providers.asr.base import ASRProvider, Segment
-from memoai.providers.asr.gemini_asr import GeminiASR
-from memoai.providers.asr.openai_asr import OpenAICompatASR
-from memoai.providers.asr.faster_whisper_asr import FasterWhisperASR
 from memoai.providers.mt.base import TranslatorProvider
-from memoai.providers.mt.gemini_mt import GeminiTranslator
-from memoai.providers.mt.openai_mt import OpenAICompatTranslator
-from memoai.languages.registry import get_language_pack
 from memoai.pipeline.segmenter import normalize_segments
 from memoai.exporters.srt import export_srt
 from memoai.exporters.vtt import export_vtt
@@ -86,7 +80,6 @@ class PipelineRunner:
         self.progress_cb(f"Nhận dạng giọng nói ({self.src_lang})...", 0.40)
         import time
         raw_segments = None
-        last_asr_err = None
         for asr_attempt in range(1, 4):
             try:
                 if asr_attempt > 1:
@@ -96,7 +89,6 @@ class PipelineRunner:
                 if raw_segments:
                     break
             except Exception as e:
-                last_asr_err = e
                 self.logger.warning(f"Lần thử ASR {asr_attempt}/3 thất bại: {e}")
                 if asr_attempt == 3:
                     self.logger.error(f"ASR thất bại sau 3 lần thử: {e}", exc=e)
@@ -111,25 +103,14 @@ class PipelineRunner:
 
         self.logger.info(f"ASR thành công: {len(segments)} segments.")
 
-        # 4. LanguagePack NLP (Furigana, Romaji for Japanese)
-        self.progress_cb(f"Phân tích ngôn ngữ ({self.src_lang})...", 0.65)
-        try:
-            lang_pack = get_language_pack(self.src_lang)
-            for s in segments:
-                s.text = s.text.strip()
-            self.logger.info(f"Phân tích ngôn ngữ hoàn tất cho {len(segments)} câu.")
-        except Exception as e:
-            self.logger.warning(f"Lỗi nhẹ khi phân tích NLP ngôn ngữ: {e}")
-
-        # 5. Translation with automatic retries
-        self.progress_cb(f"Dịch song ngữ sang {self.tgt_lang}...", 0.75)
+        # 4. Translation with automatic retries
+        self.progress_cb(f"Dịch song ngữ sang {self.tgt_lang}...", 0.70)
         texts_to_translate = [s.text for s in segments]
         translations = None
-        last_mt_err = None
         for mt_attempt in range(1, 4):
             try:
                 if mt_attempt > 1:
-                    self.progress_cb(f"Dịch song ngữ gặp lỗi, đang thử lại (lần {mt_attempt}/3)...", 0.75)
+                    self.progress_cb(f"Dịch song ngữ gặp lỗi, đang thử lại (lần {mt_attempt}/3)...", 0.70)
                     time.sleep(mt_attempt * 2)
                 translations = self.mt_provider.translate(
                     texts=texts_to_translate,
@@ -140,7 +121,6 @@ class PipelineRunner:
                 if translations:
                     break
             except Exception as e:
-                last_mt_err = e
                 self.logger.warning(f"Lần thử dịch {mt_attempt}/3 thất bại: {e}")
                 if mt_attempt == 3:
                     self.logger.error(f"Dịch phụ đề thất bại sau 3 lần thử: {e}", exc=e)
@@ -149,8 +129,7 @@ class PipelineRunner:
         translations = translations or []
         self.logger.info(f"Dịch hoàn tất: {len(translations)}/{len(segments)} câu.")
 
-
-        # 6. Export subtitle files
+        # 5. Export subtitle files
         self.progress_cb("Xuất các định dạng phụ đề (SRT, VTT)...", 0.90)
         src_srt = work_dir / f"{base_name}.{self.src_lang}.srt"
         tgt_srt = work_dir / f"{base_name}.{self.tgt_lang}.srt"
@@ -177,4 +156,6 @@ class PipelineRunner:
             "tgt_srt": tgt_srt,
             "dual_srt": dual_srt,
             "dual_vtt": dual_vtt,
+            "segments": segments,
+            "translations": translations,
         }
