@@ -10,6 +10,55 @@ def is_url(path_or_url: str) -> bool:
     """Check if input string is a URL."""
     return path_or_url.startswith("http://") or path_or_url.startswith("https://")
 
+def ensure_ffmpeg_in_path() -> tuple[str | None, str | None]:
+    """Locate ffmpeg and ffprobe on system or common locations, adding them to PATH."""
+    ffmpeg_cmd = shutil.which("ffmpeg")
+    ffprobe_cmd = shutil.which("ffprobe")
+    if ffmpeg_cmd and ffprobe_cmd:
+        return ffmpeg_cmd, ffprobe_cmd
+
+    from memoai.config import settings
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+    candidates = []
+
+    if local_app_data:
+        winget_links = Path(local_app_data) / "Microsoft" / "WinGet" / "Links"
+        if winget_links.exists():
+            candidates.append(winget_links / "ffmpeg.exe")
+        winget_pkgs = Path(local_app_data) / "Microsoft" / "WinGet" / "Packages"
+        if winget_pkgs.exists():
+            try:
+                for p in winget_pkgs.glob("**/ffmpeg.exe"):
+                    if p.is_file():
+                        candidates.append(p)
+            except Exception:
+                pass
+
+    candidates.extend([
+        Path(program_files) / "ffmpeg" / "bin" / "ffmpeg.exe",
+        Path("C:/ffmpeg/bin/ffmpeg.exe"),
+        Path(os.environ.get("USERPROFILE", "")) / "scoop" / "shims" / "ffmpeg.exe",
+        Path("C:/ProgramData/chocolatey/bin/ffmpeg.exe"),
+        settings.get_data_dir() / "bin" / "ffmpeg.exe",
+    ])
+
+    for cand in candidates:
+        if cand.exists():
+            ffmpeg_dir = cand.parent
+            os.environ["PATH"] = str(ffmpeg_dir) + os.pathsep + os.environ.get("PATH", "")
+            ffmpeg_cmd = str(cand)
+            probe_cand = ffmpeg_dir / "ffprobe.exe"
+            ffprobe_cmd = str(probe_cand) if probe_cand.exists() else (shutil.which("ffprobe") or "ffprobe")
+            return ffmpeg_cmd, ffprobe_cmd
+
+    return ffmpeg_cmd, ffprobe_cmd
+
+
+# Ensure ffmpeg in PATH at module load
+ensure_ffmpeg_in_path()
+
+
 
 from typing import Callable
 
@@ -125,7 +174,9 @@ def download_media(
 
 def get_media_duration(file_path: Path) -> float:
     """Get media duration in seconds using ffprobe."""
-    ffprobe_cmd = shutil.which("ffprobe") or "ffprobe"
+    _, ffprobe_cmd = ensure_ffmpeg_in_path()
+    if not ffprobe_cmd or not (shutil.which(ffprobe_cmd) or Path(ffprobe_cmd).exists()):
+        raise RuntimeError("Không tìm thấy công cụ ffprobe. Vui lòng cài đặt ffmpeg trên máy tính.")
     cmd = [
         ffprobe_cmd,
         "-v", "error",
@@ -153,8 +204,8 @@ def extract_audio(
     from memoai.logger import get_logger
     logger = get_logger("memoai.media")
 
-    ffmpeg_cmd = shutil.which("ffmpeg")
-    if not ffmpeg_cmd:
+    ffmpeg_cmd, _ = ensure_ffmpeg_in_path()
+    if not ffmpeg_cmd or not (shutil.which(ffmpeg_cmd) or Path(ffmpeg_cmd).exists()):
         raise RuntimeError(
             "Không tìm thấy công cụ ffmpeg trên máy tính. Vui lòng cài đặt ffmpeg hoặc thêm đường dẫn ffmpeg vào biến môi trường PATH."
         )
