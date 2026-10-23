@@ -277,6 +277,10 @@ export function getAnkiExportUrl(): string {
 }
 
 export function getMediaUrl(projectId: number): string {
+  const token = getAuthToken();
+  if (token) {
+    return `${getApiBase()}/api/media/${projectId}?token=${encodeURIComponent(token)}`;
+  }
   return `${getApiBase()}/api/media/${projectId}`;
 }
 

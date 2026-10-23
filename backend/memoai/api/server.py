@@ -174,11 +174,13 @@ security = HTTPBearer(auto_error=False)
 
 def get_current_user(
     auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    token: Optional[str] = Query(None),
     x_user_id: Optional[str] = Header(None, alias="X-User-Id"),
     session: Session = Depends(get_session),
 ) -> User:
-    if auth and auth.credentials:
-        payload = decode_access_token(auth.credentials)
+    raw_token = auth.credentials if (auth and auth.credentials) else token
+    if raw_token:
+        payload = decode_access_token(raw_token)
         if payload and "sub" in payload:
             try:
                 uid = int(payload["sub"])
@@ -1400,7 +1402,7 @@ def stream_media(project_id: int, request: Request, current_user: User = Depends
     project = session.get(Project, project_id)
     if not project or not project.media_path or not Path(project.media_path).exists():
         raise HTTPException(status_code=404, detail="Media file not found")
-    if project.user_id and project.user_id != current_user.id:
+    if project.user_id and project.user_id != current_user.id and getattr(current_user, "role", "user") != "admin":
         raise HTTPException(status_code=403, detail="Không có quyền truy cập video này")
 
     path = Path(project.media_path)

@@ -151,3 +151,44 @@ def test_multi_user_project_and_api_key_isolation(monkeypatch):
     # Charlie cannot delete Bob's vocab -> 403 Forbidden
     charlie_del_vocab = client.delete(f"/api/vocab/{bob_vocab_id}", headers=charlie_headers)
     assert charlie_del_vocab.status_code == 403
+
+
+def test_media_streaming_with_query_token_auth(tmp_path):
+    client = TestClient(app)
+    uid = uuid.uuid4().hex[:6]
+    username = f"user_media_{uid}"
+    res = client.post("/api/auth/register", json={"username": username, "password": "password123"})
+    token = res.json()["access_token"]
+    user_id = res.json()["user"]["id"]
+
+    dummy_media = tmp_path / "sample.mp4"
+    dummy_media.write_bytes(b"FAKE_MP4_HEADER_DATA_" * 10)
+
+    from memoai.db import get_session
+    from memoai.models import Project
+    session = next(get_session())
+    proj = Project(
+        title="Test Media Project",
+        user_id=user_id,
+        source_uri="sample.mp4",
+        media_path=str(dummy_media),
+        status="completed",
+        source_type="file",
+    )
+    session.add(proj)
+    session.commit()
+    session.refresh(proj)
+
+    # 1. Accessing media with query parameter ?token= -> 200 OK
+    stream_res = client.get(f"/api/media/{proj.id}?token={token}")
+    assert stream_res.status_code == 200
+
+    # 2. Accessing media with Range header -> 206 Partial Content
+    range_res = client.get(f"/api/media/{proj.id}?token={token}", headers={"range": "bytes=0-10"})
+    assert range_res.status_code == 206
+
+    # 3. Accessing media with another user's token -> 403 Forbidden
+    other_res = client.post("/api/auth/register", json={"username": f"other_{uid}", "password": "password123"})
+    other_token = other_res.json()["access_token"]
+    forbidden_res = client.get(f"/api/media/{proj.id}?token={other_token}")
+    assert forbidden_res.status_code == 403
