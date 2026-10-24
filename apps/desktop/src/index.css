@@ -20,19 +20,17 @@
 /* Ruby Furigana styling */
 ruby {
   ruby-align: center;
-  display: inline-flex;
-  flex-direction: column-reverse;
-  vertical-align: bottom;
-  margin: 0 1px;
+  ruby-position: over;
 }
 
 rt {
-  font-size: 0.65em;
-  line-height: 1.1;
+  font-size: 0.58em;
+  line-height: 1;
   text-align: center;
   user-select: none;
   color: #2563eb; /* Crisp blue furigana in light mode */
-  font-weight: 500;
+  font-weight: 600;
+  margin-bottom: 1px;
 }
 
 .dark rt {

@@ -25,6 +25,7 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
   jaFontSize,
   viFontSize,
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<HTMLDivElement | null>(null);
 
   const activeIdx = segments.findIndex(
@@ -32,13 +33,23 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
   );
 
   useEffect(() => {
-    if (activeRef.current) {
-      activeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (activeRef.current && containerRef.current) {
+      const container = containerRef.current;
+      const activeEl = activeRef.current;
+      const targetTop =
+        activeEl.offsetTop -
+        container.offsetTop -
+        (container.clientHeight / 2 - activeEl.clientHeight / 2);
+
+      container.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: "smooth",
+      });
     }
   }, [activeIdx]);
 
   return (
-    <div className="flex-1 overflow-y-auto space-y-2.5 p-3.5">
+    <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto space-y-2 p-2 sm:p-3.5 relative">
       {segments.map((s, idx) => {
         const isActive = idx === activeIdx;
         return (
@@ -46,13 +57,13 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
             key={s.id || idx}
             ref={isActive ? activeRef : null}
             onClick={() => onSeek(s.start)}
-            className={`p-3.5 rounded-xl cursor-pointer transition border text-left ${
+            className={`p-2.5 sm:p-3.5 rounded-xl cursor-pointer transition border text-left ${
               isActive
                 ? "bg-indigo-50 dark:bg-indigo-600/15 border-indigo-400 dark:border-indigo-500/60 shadow-md text-slate-900 dark:text-white"
                 : "bg-white dark:bg-slate-900/40 border-slate-200 dark:border-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700 text-slate-800 dark:text-slate-100"
             }`}
           >
-            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 dark:text-slate-500 mb-1.5">
+            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 dark:text-slate-500 mb-1">
               <span>
                 {formatTime(s.start)} - {formatTime(s.end)}
               </span>
@@ -65,8 +76,15 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
             </div>
 
             <div
-              style={jaFontSize ? { fontSize: `${Math.max(14, Math.round(jaFontSize * 0.65))}px`, lineHeight: 1.4 } : undefined}
-              className="text-base font-medium text-slate-900 dark:text-slate-100 flex flex-wrap gap-x-1 gap-y-1.5 items-end"
+              style={
+                jaFontSize
+                  ? {
+                      fontSize: `${Math.max(14, Math.round(jaFontSize * 0.65))}px`,
+                      lineHeight: showFurigana ? 1.6 : 1.35,
+                    }
+                  : { lineHeight: showFurigana ? 1.6 : 1.35 }
+              }
+              className="text-base font-medium text-slate-900 dark:text-slate-100 flex flex-wrap items-baseline gap-x-0.5 gap-y-0.5"
             >
               {s.tokens && s.tokens.length > 0 ? (
                 s.tokens.map((token, tIdx) => (
@@ -77,7 +95,7 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
                       onSeek(s.start);
                       onWordClick(token.surface, s);
                     }}
-                    className="hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 px-1 py-0.5 rounded transition cursor-pointer"
+                    className="hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 px-0.5 py-0.5 rounded transition cursor-pointer"
                   >
                     {showFurigana && token.reading && token.surface !== token.reading ? (
                       <ruby>

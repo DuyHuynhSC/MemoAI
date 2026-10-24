@@ -258,12 +258,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col h-full bg-black rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-800 shadow-2xl relative select-none"
+      className="flex-1 min-h-0 flex flex-col h-full bg-black rounded-xl sm:rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-800 shadow-2xl relative select-none"
     >
       {/* Video Display Area with double-tap gesture */}
       <div
         onTouchEnd={handleTouchVideo}
-        className="relative flex-1 bg-black flex items-center justify-center min-h-[200px] sm:min-h-[340px]"
+        className="relative flex-1 min-h-0 bg-black flex items-center justify-center overflow-hidden"
       >
         <video
           ref={videoRef}
@@ -289,7 +289,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setIsShadowingPaused(false);
             setShadowingSegment(null);
           }}
-          className="w-full h-full max-h-[calc(100vh-230px)] object-contain cursor-pointer"
+          className="w-full h-full object-contain cursor-pointer"
           onClick={togglePlay}
         />
 
@@ -326,8 +326,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             >
               {showJapanese && (
                 <div
-                  style={{ fontSize: `${jaFontSize || 26}px`, lineHeight: 1.35 }}
-                  className="font-semibold text-white tracking-wide flex flex-wrap justify-center items-end gap-x-1 sm:gap-x-1.5 gap-y-1"
+                  style={{ fontSize: `${jaFontSize || 26}px`, lineHeight: showFurigana ? 1.4 : 1.25 }}
+                  className="font-semibold text-white tracking-wide flex flex-wrap justify-center items-baseline gap-x-0.5 gap-y-0.5"
                 >
                   {displaySegment.tokens && displaySegment.tokens.length > 0 ? (
                     displaySegment.tokens.map((token, idx) => (
@@ -341,7 +341,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                           }
                           onWordClick(token.surface, displaySegment);
                         }}
-                        className="hover:text-indigo-400 hover:bg-white/10 active:bg-white/20 px-1 py-0.5 rounded cursor-pointer transition select-none"
+                        className="hover:text-indigo-400 hover:bg-white/10 active:bg-white/20 px-0.5 py-0.5 rounded cursor-pointer transition select-none"
                       >
                         {showFurigana && token.reading && token.surface !== token.reading ? (
                           <ruby>
@@ -379,7 +379,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* Responsive Player Controls */}
-      <div className="bg-slate-100 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4 space-y-2.5">
+      <div className="bg-slate-100 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 p-2 sm:p-3.5 space-y-1.5 sm:space-y-2.5 flex-shrink-0">
         {/* Timeline Slider */}
         <div className="flex items-center space-x-2.5 text-xs font-mono text-slate-500 dark:text-slate-400">
           <span className="min-w-[40px] text-right">{formatTime(currentTime)}</span>
