@@ -1,6 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "memoai",
+  "productName": "MemoAi",
+  "mainBinaryName": "MemoAi",
   "version": "0.1.0",
   "identifier": "fujinet.vn.memoai",
   "build": {
