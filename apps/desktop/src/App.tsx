@@ -317,20 +317,20 @@ export const App: React.FC = () => {
             )}
           </div>
 
-          {/* Server IP config button */}
+          {/* Server IP config button (Desktop only, mobile uses bottom bar) */}
           <button
             onClick={() => setIsServerModalOpen(true)}
-            className="flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            className="hidden sm:flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
             title="Địa chỉ máy chủ Backend"
           >
             <Server className="w-4 h-4 text-indigo-500" />
             <span className="hidden md:inline">Máy chủ</span>
           </button>
 
-          {/* AI Settings Button */}
+          {/* AI Settings Button (Desktop only, mobile uses bottom bar) */}
           <button
             onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
+            className="hidden sm:flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold border border-slate-200 dark:border-slate-700 transition"
             title="Cài đặt kết nối AI & Giao diện"
           >
             <Settings className="w-4 h-4 text-slate-500 dark:text-slate-400" />
@@ -346,10 +346,10 @@ export const App: React.FC = () => {
             <span>Sổ từ vựng & Anki</span>
           </button>
 
-          {/* Add Video Button */}
+          {/* Add Video Button (Desktop only, mobile uses center bottom '+' button) */}
           <button
             onClick={() => setIsCreateOpen(true)}
-            className="flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/20 transition"
+            className="hidden sm:flex items-center space-x-1 sm:space-x-2 px-3 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/20 transition"
           >
             <Plus className="w-4 h-4" />
             <span className="hidden xs:inline">Thêm video</span>
