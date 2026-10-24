@@ -247,7 +247,8 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+    <div className={`bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200 ${selectedProject ? "h-[100dvh] max-h-[100dvh] overflow-hidden" : "min-h-screen"}`}>
+
       {/* Top Navbar */}
       <header className={`h-16 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/80 backdrop-blur px-4 sm:px-6 items-center justify-between z-30 sticky top-0 ${selectedProject ? "hidden sm:flex" : "flex"}`}>
 
@@ -360,9 +361,9 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main
-        className={`flex-1 flex flex-col ${
+        className={`flex-1 min-h-0 flex flex-col ${
           selectedProject
-            ? "p-0 sm:p-4 md:p-6 h-[100dvh] sm:h-auto overflow-hidden sm:overflow-visible"
+            ? "p-0 sm:p-4 md:p-6 h-full overflow-hidden sm:overflow-visible"
             : "p-3 sm:p-4 md:p-6 pb-20 sm:pb-6"
         }`}
       >
@@ -399,7 +400,7 @@ export const App: React.FC = () => {
             </div>
 
             {/* Top (Mobile 50%) / Left (Desktop): Video Player Area */}
-            <div className="w-full h-1/2 lg:h-[calc(100vh-130px)] lg:min-h-[580px] lg:flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div className="w-full flex-1 min-h-0 basis-0 lg:basis-auto lg:h-[calc(100vh-130px)] lg:min-h-[580px] lg:flex-1 flex flex-col overflow-hidden bg-black">
               {/* Desktop-only title bar */}
               <div className="hidden lg:flex items-center justify-between flex-shrink-0 px-0.5 mb-2.5">
                 <div className="flex items-center space-x-2 flex-1 min-w-0 mr-2">
@@ -487,7 +488,7 @@ export const App: React.FC = () => {
             </div>
 
             {/* Bottom (Mobile 50%) / Right (Desktop): Transcript Sidebar */}
-            <div className="w-full h-1/2 lg:h-[calc(100vh-130px)] lg:min-h-[580px] lg:w-[480px] xl:w-[540px] 2xl:w-[580px] flex-shrink-0 bg-white dark:bg-slate-900 border-t lg:border border-slate-200 dark:border-slate-800 lg:rounded-2xl flex flex-col min-h-0 overflow-hidden shadow-2xl z-10">
+            <div className="w-full flex-1 min-h-0 basis-0 lg:basis-auto lg:h-[calc(100vh-130px)] lg:min-h-[580px] lg:w-[480px] xl:w-[540px] 2xl:w-[580px] flex-shrink-0 bg-white dark:bg-slate-900 border-t lg:border border-slate-200 dark:border-slate-800 lg:rounded-2xl flex flex-col min-h-0 overflow-hidden shadow-2xl z-10">
               <div className="p-2 sm:p-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/70 flex-shrink-0">
                 <div>
                   <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">Lời thoại & Phụ đề</h3>

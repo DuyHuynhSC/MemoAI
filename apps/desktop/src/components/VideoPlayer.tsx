@@ -322,11 +322,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             <div
               onClick={togglePlay}
-              className="bg-black/80 backdrop-blur-md px-4 sm:px-6 py-2.5 sm:py-3.5 rounded-2xl max-w-3xl text-center shadow-2xl border border-white/10 pointer-events-auto transition duration-150 cursor-pointer"
+              className="bg-black/85 backdrop-blur-md px-3 sm:px-6 py-1.5 sm:py-3.5 rounded-xl sm:rounded-2xl max-w-xl text-center shadow-2xl border border-white/10 pointer-events-auto transition duration-150 cursor-pointer"
             >
               {showJapanese && (
                 <div
-                  style={{ fontSize: `${jaFontSize || 26}px`, lineHeight: showFurigana ? 1.4 : 1.25 }}
+                  style={{
+                    fontSize: typeof window !== "undefined" && window.innerWidth < 640
+                      ? `${Math.min(15, jaFontSize || 15)}px`
+                      : `${jaFontSize || 26}px`,
+                    lineHeight: showFurigana ? 1.4 : 1.25,
+                  }}
                   className="font-semibold text-white tracking-wide flex flex-wrap justify-center items-baseline gap-x-0.5 gap-y-0.5"
                 >
                   {displaySegment.tokens && displaySegment.tokens.length > 0 ? (
@@ -367,8 +372,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
               {showTranslation && displaySegment.translation && (
                 <p
-                  style={{ fontSize: `${viFontSize || 20}px` }}
-                  className="text-amber-200/90 font-medium mt-1 leading-snug drop-shadow"
+                  style={{
+                    fontSize: typeof window !== "undefined" && window.innerWidth < 640
+                      ? `${Math.min(12, viFontSize || 12)}px`
+                      : `${viFontSize || 20}px`,
+                  }}
+                  className="text-amber-200/90 font-medium mt-0.5 sm:mt-1 leading-snug drop-shadow"
                 >
                   {displaySegment.translation}
                 </p>

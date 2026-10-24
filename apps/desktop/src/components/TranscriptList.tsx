@@ -32,14 +32,15 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
     (s) => currentTime >= s.start && currentTime <= s.end
   );
 
+  // Auto-scroll to active segment inside container
   useEffect(() => {
     if (activeRef.current && containerRef.current) {
       const container = containerRef.current;
       const activeEl = activeRef.current;
-      const targetTop =
-        activeEl.offsetTop -
-        container.offsetTop -
-        (container.clientHeight / 2 - activeEl.clientHeight / 2);
+      const activeRect = activeEl.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const relativeTop = activeRect.top - containerRect.top + container.scrollTop;
+      const targetTop = relativeTop - (container.clientHeight / 2 - activeEl.clientHeight / 2);
 
       container.scrollTo({
         top: Math.max(0, targetTop),
@@ -59,7 +60,7 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
             onClick={() => onSeek(s.start)}
             className={`p-2.5 sm:p-3.5 rounded-xl cursor-pointer transition border text-left ${
               isActive
-                ? "bg-indigo-50 dark:bg-indigo-600/15 border-indigo-400 dark:border-indigo-500/60 shadow-md text-slate-900 dark:text-white"
+                ? "bg-indigo-50 dark:bg-indigo-600/15 border-indigo-400 dark:border-indigo-500/60 shadow-md text-slate-900 dark:text-white ring-1 ring-indigo-400/50"
                 : "bg-white dark:bg-slate-900/40 border-slate-200 dark:border-slate-800/80 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700 text-slate-800 dark:text-slate-100"
             }`}
           >
@@ -69,7 +70,7 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
               </span>
               {isActive && (
                 <span className="flex items-center space-x-1 text-indigo-600 dark:text-indigo-400 font-sans font-medium text-xs">
-                  <Play className="w-3 h-3 fill-current" />
+                  <Play className="w-3 h-3 fill-current animate-pulse" />
                   <span>Đang phát</span>
                 </span>
               )}
