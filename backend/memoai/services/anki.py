@@ -1,10 +1,13 @@
 from pathlib import Path
 import genanki
-from memoai.models import Vocab
+from memoai.models import Vocab, Grammar
 
 # Distinct Model ID and Deck ID
 MEMOAI_MODEL_ID = 1607392319
 MEMOAI_DECK_ID = 2059400110
+
+MEMOAI_GRAMMAR_MODEL_ID = 1607392320
+MEMOAI_GRAMMAR_DECK_ID = 2059400111
 
 CARD_CSS = """
 .card {
@@ -41,6 +44,15 @@ CARD_CSS = """
   font-weight: 600;
   color: #047857;
   margin-top: 16px;
+}
+.explanation {
+  font-size: 17px;
+  color: #334155;
+  background: #f1f5f9;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-top: 14px;
+  text-align: left;
 }
 .sentence {
   font-size: 20px;
@@ -92,8 +104,39 @@ memoai_card_model = genanki.Model(
     css=CARD_CSS,
 )
 
+memoai_grammar_model = genanki.Model(
+    MEMOAI_GRAMMAR_MODEL_ID,
+    "MemoAI Japanese Grammar Flashcard",
+    fields=[
+        {"name": "Pattern"},
+        {"name": "Meaning"},
+        {"name": "Explanation"},
+        {"name": "ContextSentence"},
+        {"name": "ContextTranslation"},
+        {"name": "JLPT"},
+    ],
+    templates=[
+        {
+            "name": "Grammar Recognition",
+            "qfmt": """
+<div class="word">{{Pattern}}</div>
+{{#JLPT}}<div class="jlpt">{{JLPT}}</div>{{/JLPT}}
+{{#ContextSentence}}<div class="sentence">{{ContextSentence}}</div>{{/ContextSentence}}
+""",
+            "afmt": """
+{{FrontSide}}
+<hr id="answer">
+<div class="meaning">{{Meaning}}</div>
+{{#Explanation}}<div class="explanation">{{Explanation}}</div>{{/Explanation}}
+{{#ContextTranslation}}<div class="sentence trans">{{ContextTranslation}}</div>{{/ContextTranslation}}
+""",
+        },
+    ],
+    css=CARD_CSS,
+)
 
-def export_anki_deck(vocabs: list[Vocab], deck_name: str = "MemoAI::TiengNhat", output_path: Path | None = None) -> Path:
+
+def export_anki_deck(vocabs: list[Vocab], deck_name: str = "MemoAI::TiengNhat::TuVung", output_path: Path | None = None) -> Path:
     """Export a list of Vocab objects to an Anki .apkg file."""
     deck = genanki.Deck(MEMOAI_DECK_ID, deck_name)
 
@@ -114,6 +157,32 @@ def export_anki_deck(vocabs: list[Vocab], deck_name: str = "MemoAI::TiengNhat", 
 
     if output_path is None:
         output_path = Path("memoai_deck.apkg")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    genanki.Package(deck).write_to_file(str(output_path))
+    return output_path
+
+
+def export_grammar_anki_deck(grammars: list[Grammar], deck_name: str = "MemoAI::TiengNhat::NguPhap", output_path: Path | None = None) -> Path:
+    """Export a list of Grammar objects to an Anki .apkg file."""
+    deck = genanki.Deck(MEMOAI_GRAMMAR_DECK_ID, deck_name)
+
+    for g in grammars:
+        note = genanki.Note(
+            model=memoai_grammar_model,
+            fields=[
+                g.pattern,
+                g.meaning or "",
+                g.explanation or "",
+                g.context_sentence or "",
+                g.context_translation or "",
+                g.jlpt or "",
+            ],
+        )
+        deck.add_note(note)
+
+    if output_path is None:
+        output_path = Path("memoai_grammar_deck.apkg")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     genanki.Package(deck).write_to_file(str(output_path))

@@ -1,8 +1,11 @@
+export type JLPTLevel = "N5" | "N4" | "N3" | "N2" | "N1";
+
 export interface User {
   id: number;
   username: string;
   full_name?: string | null;
   role?: "admin" | "user";
+  jlpt_level?: JLPTLevel | string;
   is_active?: boolean;
   project_count?: number;
   created_at?: string;
@@ -67,6 +70,54 @@ export interface Vocab {
   context_sentence?: string;
   context_translation?: string;
   created_at: string;
+}
+
+export interface Grammar {
+  id: number;
+  user_id?: number;
+  pattern: string;
+  meaning: string;
+  explanation?: string;
+  jlpt?: string;
+  context_sentence?: string;
+  context_translation?: string;
+  created_at: string;
+}
+
+export interface AnalysisVocabItem {
+  word: string;
+  reading: string;
+  romanized: string;
+  meaning: string;
+  pos: string;
+  jlpt?: string;
+  is_saved?: boolean;
+}
+
+export interface AnalysisGrammarItem {
+  pattern: string;
+  meaning: string;
+  explanation: string;
+  jlpt?: string;
+  is_saved?: boolean;
+}
+
+export interface SaveBatchAnalysisResult {
+  saved_vocabs: number;
+  skipped_vocabs: number;
+  saved_grammars: number;
+  skipped_grammars: number;
+}
+
+export interface SentenceAnalysisResponse {
+  sentence: string;
+  translation: string;
+  breakdown_notes?: string;
+  user_level: string;
+  vocabs: AnalysisVocabItem[];
+  grammars: AnalysisGrammarItem[];
+  cached?: boolean;
+  save_stats?: SaveBatchAnalysisResult;
 }
 
 export interface WordDefinition {

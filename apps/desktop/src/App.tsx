@@ -44,6 +44,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { ErrorLogModal } from "./components/ErrorLogModal";
 import { ServerAddressModal } from "./components/ServerAddressModal";
 import { AuthModal } from "./components/AuthModal";
+import { AnalysisModal } from "./components/AnalysisModal";
 
 export const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -110,11 +111,14 @@ export const App: React.FC = () => {
   }, []);
 
   const handleUserChanged = (u: User) => {
+    const isDifferentUser = currentUser?.id !== u.id;
     setCurrentUser(u);
-    setSelectedProjectId(null);
-    setSelectedProject(null);
-    setSegments([]);
-    loadProjects();
+    if (isDifferentUser) {
+      setSelectedProjectId(null);
+      setSelectedProject(null);
+      setSegments([]);
+      loadProjects();
+    }
   };
 
   const handleLogout = () => {
@@ -133,6 +137,7 @@ export const App: React.FC = () => {
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [errorModalProject, setErrorModalProject] = useState<Project | null>(null);
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [analyzingSegment, setAnalyzingSegment] = useState<Segment | null>(null);
 
   // Word Popup
   const [wordDef, setWordDef] = useState<WordDefinition | null>(null);
@@ -300,12 +305,17 @@ export const App: React.FC = () => {
             <button
               onClick={() => setIsAuthModalOpen(true)}
               className="flex items-center space-x-1.5 p-2 sm:px-3 sm:py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold border border-indigo-200 dark:border-indigo-800/70 transition"
-              title={currentUser ? `Đang đăng nhập: ${currentUser.username}` : "Đăng nhập / Đổi tài khoản"}
+              title={currentUser ? `Đang đăng nhập: ${currentUser.username} (JLPT ${currentUser.jlpt_level || "N5"})` : "Đăng nhập / Đổi tài khoản"}
             >
               <UserIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
               <span className="hidden sm:inline max-w-[100px] truncate">
                 {currentUser ? currentUser.username : "Tài khoản"}
               </span>
+              {currentUser && (
+                <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-md bg-indigo-600 text-white">
+                  {currentUser.jlpt_level || "N5"}
+                </span>
+              )}
             </button>
             {currentUser && (
               <button
@@ -469,6 +479,7 @@ export const App: React.FC = () => {
                   seekTarget={seekTarget}
                   onTimeUpdate={setCurrentTime}
                   onWordClick={handleWordClick}
+                  onAnalyzeSegment={(seg) => setAnalyzingSegment(seg)}
                   showFurigana={showFurigana}
                   setShowFurigana={setShowFurigana}
                   showRomaji={showRomaji}
@@ -481,7 +492,7 @@ export const App: React.FC = () => {
                   setJaFontSize={setJaFontSize}
                   viFontSize={viFontSize}
                   setViFontSize={setViFontSize}
-                  isWordPopupOpen={wordLoading || wordDef !== null}
+                  isWordPopupOpen={wordLoading || wordDef !== null || analyzingSegment !== null}
                   onSeekHandled={() => setSeekTarget(null)}
                 />
               </div>
@@ -493,7 +504,7 @@ export const App: React.FC = () => {
                 <div>
                   <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">Lời thoại & Phụ đề</h3>
                   <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400">
-                    Chạm câu để nhảy tới · Chạm từ để tra nghĩa
+                    Chạm câu để nhảy tới · Chạm từ để tra nghĩa · Phân tích AI
                   </p>
                 </div>
                 <span className="text-[10px] sm:text-xs font-mono text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border border-slate-200 dark:border-slate-700">
@@ -506,6 +517,7 @@ export const App: React.FC = () => {
                 currentTime={currentTime}
                 onSeek={handleSeekFromTranscript}
                 onWordClick={handleWordClick}
+                onAnalyzeSegment={(seg) => setAnalyzingSegment(seg)}
                 showFurigana={showFurigana}
                 showRomaji={showRomaji}
                 showTranslation={showTranslation}
@@ -790,6 +802,7 @@ export const App: React.FC = () => {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         currentUser={currentUser}
+        onUserUpdated={handleUserChanged}
         theme={theme}
         setTheme={setTheme}
         jaFontSize={jaFontSize}
@@ -827,6 +840,13 @@ export const App: React.FC = () => {
         onClose={() => setIsAuthModalOpen(false)}
         currentUser={currentUser}
         onUserChanged={handleUserChanged}
+      />
+
+      <AnalysisModal
+        segment={analyzingSegment}
+        isOpen={analyzingSegment !== null}
+        onClose={() => setAnalyzingSegment(null)}
+        userLevel={currentUser?.jlpt_level || "N5"}
       />
     </div>
   );

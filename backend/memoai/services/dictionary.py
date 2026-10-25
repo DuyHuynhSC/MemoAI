@@ -1,14 +1,14 @@
 import json
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 from memoai.db import engine
-from memoai.models import Vocab
+from memoai.models import Vocab, AIProfile, AppSettings
 from memoai.languages.ja import JapaneseLanguagePack
 from memoai.config import settings
 
 _ja_pack = JapaneseLanguagePack()
 
 
-def lookup_word(word: str, context: str | None = None) -> dict:
+def lookup_word(word: str, context: str | None = None, user_id: int | None = None) -> dict:
     """Look up a Japanese word, returning reading, romaji, ruby, pos, meaning, and JLPT level."""
     clean_word = word.strip()
     if not clean_word:
@@ -22,10 +22,13 @@ def lookup_word(word: str, context: str | None = None) -> dict:
     ruby_html = _ja_pack.to_ruby_html(clean_word)
     pos = main_token.pos if main_token else ""
 
-    # Check if word is already saved in Vocab or find active AI profile
+    # Check if word is already saved in Vocab for this user or find active AI profile
     mt_profile = None
     with Session(engine) as session:
-        statement = select(Vocab).where(Vocab.word == clean_word)
+        if user_id:
+            statement = select(Vocab).where(Vocab.user_id == user_id, Vocab.word == clean_word)
+        else:
+            statement = select(Vocab).where(Vocab.word == clean_word)
         existing = session.exec(statement).first()
         if existing:
             return {
@@ -40,8 +43,21 @@ def lookup_word(word: str, context: str | None = None) -> dict:
                 "saved": True,
             }
 
-        from memoai.models import AIProfile
-        mt_profile = session.exec(select(AIProfile).where(AIProfile.can_translate == True)).first()
+        if user_id:
+            app_set = session.exec(select(AppSettings).where(AppSettings.user_id == user_id)).first()
+            if app_set and app_set.default_mt_profile_id:
+                cand = session.get(AIProfile, app_set.default_mt_profile_id)
+                if cand and cand.can_translate:
+                    mt_profile = cand
+        if not mt_profile:
+            mt_profile = session.exec(
+                select(AIProfile)
+                .where(
+                    AIProfile.can_translate == True,
+                    or_(AIProfile.user_id == user_id, AIProfile.user_id == None) if user_id else True,
+                )
+                .order_by((AIProfile.provider_type == "gemini").desc(), AIProfile.id)
+            ).first()
 
     # Fetch definition via AI (Gemini or OpenAI) with strict timeout & proxy support
     meaning = ""
@@ -95,7 +111,7 @@ def lookup_word(word: str, context: str | None = None) -> dict:
         except Exception:
             pass
 
-    if not meaning and mt_profile and mt_profile.provider_type == "openai" and mt_profile.api_key:
+    if not meaning and mt_profile and mt_profile.provider_type in ("openai", "openai_compat") and mt_profile.api_key:
         try:
             from openai import OpenAI
             from memoai.network import get_httpx_client

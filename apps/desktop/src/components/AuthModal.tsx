@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { User as UserIcon, Lock, Key, Check, AlertCircle, LogIn, UserPlus, Users, X } from "lucide-react";
-import type { User } from "../types";
-import { loginUser, registerUser, fetchAllUsers } from "../api/client";
+import { User as UserIcon, Lock, Key, Check, AlertCircle, LogIn, UserPlus, Users, X, GraduationCap } from "lucide-react";
+import type { User, JLPTLevel } from "../types";
+import { loginUser, registerUser, fetchAllUsers, updateUserProfile } from "../api/client";
+
+const JLPT_LEVELS: JLPTLevel[] = ["N5", "N4", "N3", "N2", "N1"];
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -20,14 +22,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [jlptLevel, setJlptLevel] = useState<JLPTLevel>("N5");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [loading, setLoading] = useState(false);
+  const [updatingLevel, setUpdatingLevel] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
 
   useEffect(() => {
     if (isOpen) {
       setErrorMsg(null);
+      setSuccessMsg(null);
       loadAvailableUsers();
     }
   }, [isOpen]);
@@ -43,9 +49,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleQuickChangeLevel = async (lvl: JLPTLevel) => {
+    if (!currentUser || updatingLevel) return;
+    setUpdatingLevel(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const updated = await updateUserProfile({ jlpt_level: lvl });
+      onUserChanged(updated);
+      setSuccessMsg(`Đã cập nhật trình độ học tập của ${updated.username} thành JLPT ${lvl}!`);
+      loadAvailableUsers();
+    } catch (e: any) {
+      setErrorMsg(e.message || "Không thể cập nhật trình độ");
+    } finally {
+      setUpdatingLevel(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setSuccessMsg(null);
 
     if (!username.trim()) {
       setErrorMsg("Vui lòng nhập tên đăng nhập");
@@ -68,6 +92,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           password,
           full_name: fullName.trim() || undefined,
           gemini_api_key: geminiApiKey.trim() || undefined,
+          jlpt_level: jlptLevel,
         });
         onUserChanged(res.user);
         onClose();
@@ -85,9 +110,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setMode("login");
   };
 
+  const currentLevel = ((currentUser?.jlpt_level || "N5").toUpperCase() as JLPTLevel);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800/80">
           <div className="flex items-center gap-2.5">
@@ -96,10 +123,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                {mode === "login" ? "Đăng nhập tài khoản" : "Tạo tài khoản mới"}
+                {mode === "login" ? "Hồ sơ & Đăng nhập" : "Tạo tài khoản mới"}
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Quản lý bài học và API Key LLM riêng biệt
+                Cá nhân hóa trình độ JLPT (N5 - N1) & Sổ từ vựng riêng
               </p>
             </div>
           </div>
@@ -111,9 +138,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
+        {/* Current User JLPT Level Quick Selector */}
+        {currentUser && (
+          <div className="px-6 py-3.5 bg-indigo-50/60 dark:bg-indigo-950/25 border-b border-indigo-100 dark:border-indigo-900/40 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+                <GraduationCap className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Trình độ của {currentUser.full_name || currentUser.username}:</span>
+              </div>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white">
+                JLPT {currentLevel}
+              </span>
+            </div>
+            <div className="grid grid-cols-5 gap-1.5">
+              {JLPT_LEVELS.map((lvl) => {
+                const active = currentLevel === lvl;
+                return (
+                  <button
+                    key={lvl}
+                    type="button"
+                    disabled={updatingLevel}
+                    onClick={() => handleQuickChangeLevel(lvl)}
+                    className={`py-1.5 rounded-xl text-xs font-bold border transition ${
+                      active
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                        : "bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400"
+                    }`}
+                  >
+                    {lvl}
+                  </button>
+                );
+              })}
+            </div>
+            {successMsg && (
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                ✔ {successMsg}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Existing Users Quick Switcher */}
         {availableUsers.length > 0 && (
-          <div className="px-6 pt-4 pb-2 bg-zinc-50 dark:bg-zinc-950/40 border-b border-zinc-100 dark:border-zinc-800/60">
+          <div className="px-6 pt-3.5 pb-2.5 bg-zinc-50 dark:bg-zinc-950/40 border-b border-zinc-100 dark:border-zinc-800/60">
             <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
               <Users className="w-3.5 h-3.5" />
               <span>Tài khoản trên hệ thống:</span>
@@ -133,6 +200,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     }`}
                   >
                     <span>{u.username}</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 font-bold">
+                      {u.jlpt_level || "N5"}
+                    </span>
                     {isCurrent && <span className="text-[10px] text-indigo-500">(Hiện tại)</span>}
                   </button>
                 );
@@ -156,7 +226,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }`}
           >
             <LogIn className="w-3.5 h-3.5" />
-            Đăng nhập
+            Đăng nhập tài khoản khác
           </button>
           <button
             type="button"
@@ -220,6 +290,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {mode === "register" && (
             <>
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
+                  Trình độ tiếng Nhật hiện tại (JLPT N5 - N1) *
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {JLPT_LEVELS.map((lvl) => (
+                    <button
+                      key={lvl}
+                      type="button"
+                      onClick={() => setJlptLevel(lvl)}
+                      className={`py-2 rounded-xl text-xs font-bold border transition ${
+                        jlptLevel === lvl
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                          : "bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400"
+                      }`}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  AI sẽ giải thích từ vựng & ngữ pháp phù hợp với trình độ này của bạn.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">
                   Họ và tên / Biệt danh (Tùy chọn)

@@ -2,12 +2,17 @@ import type {
   Project,
   Segment,
   Vocab,
+  Grammar,
   WordDefinition,
   AIProfile,
   AppSettings,
   ProfileTestResult,
   User,
   AuthResponse,
+  SentenceAnalysisResponse,
+  SaveBatchAnalysisResult,
+  AnalysisVocabItem,
+  AnalysisGrammarItem,
 } from "../types";
 
 export const DEFAULT_API_BASE = "http://127.0.0.1:8000";
@@ -77,6 +82,7 @@ export async function registerUser(payload: {
   password: string;
   full_name?: string;
   gemini_api_key?: string;
+  jlpt_level?: string;
 }): Promise<AuthResponse> {
   const res = await fetch(`${getApiBase()}/api/auth/register`, {
     method: "POST",
@@ -91,6 +97,25 @@ export async function registerUser(payload: {
   setAuthToken(data.access_token);
   setAuthUser(data.user);
   return data;
+}
+
+export async function updateUserProfile(payload: {
+  full_name?: string;
+  jlpt_level?: string;
+  password?: string;
+}): Promise<User> {
+  const res = await fetch(`${getApiBase()}/api/auth/profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Cập nhật hồ sơ thất bại");
+  }
+  const updated: User = await res.json();
+  setAuthUser(updated);
+  return updated;
 }
 
 export async function loginUser(payload: { username: string; password: string }): Promise<AuthResponse> {
@@ -237,7 +262,9 @@ export async function retryProject(
 export async function lookupWord(q: string, context?: string): Promise<WordDefinition> {
   const params = new URLSearchParams({ q });
   if (context) params.append("context", context);
-  const res = await fetch(`${getApiBase()}/api/dictionary/lookup?${params.toString()}`);
+  const res = await fetch(`${getApiBase()}/api/dictionary/lookup?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error("Failed to lookup word");
   return res.json();
 }
@@ -274,6 +301,79 @@ export function getAnkiExportUrl(): string {
     return `${getApiBase()}/api/vocab/export/anki?token=${encodeURIComponent(token)}`;
   }
   return `${getApiBase()}/api/vocab/export/anki`;
+}
+
+// ==================== GRAMMAR & LLM SENTENCE ANALYSIS ====================
+
+export async function fetchGrammar(): Promise<Grammar[]> {
+  const res = await fetch(`${getApiBase()}/api/grammar`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to load grammar");
+  return res.json();
+}
+
+export async function addGrammar(payload: Partial<Grammar>): Promise<Grammar> {
+  const res = await fetch(`${getApiBase()}/api/grammar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to save grammar");
+  return res.json();
+}
+
+export async function deleteGrammar(id: number): Promise<void> {
+  const res = await fetch(`${getApiBase()}/api/grammar/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete grammar");
+}
+
+export function getGrammarAnkiExportUrl(): string {
+  const token = getAuthToken();
+  if (token) {
+    return `${getApiBase()}/api/grammar/export/anki?token=${encodeURIComponent(token)}`;
+  }
+  return `${getApiBase()}/api/grammar/export/anki`;
+}
+
+export async function analyzeSegment(payload: {
+  segment_id?: number;
+  sentence: string;
+  translation?: string;
+  force_refresh?: boolean;
+  auto_save?: boolean;
+}): Promise<SentenceAnalysisResponse> {
+  const res = await fetch(`${getApiBase()}/api/analysis/segment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Không thể phân tích câu thoại");
+  }
+  return res.json();
+}
+
+export async function saveBatchAnalysis(payload: {
+  vocabs?: AnalysisVocabItem[];
+  grammars?: AnalysisGrammarItem[];
+  context_sentence?: string;
+  context_translation?: string;
+}): Promise<SaveBatchAnalysisResult> {
+  const res = await fetch(`${getApiBase()}/api/analysis/save-batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Không thể lưu kết quả phân tích");
+  }
+  return res.json();
 }
 
 export function getMediaUrl(projectId: number): string {

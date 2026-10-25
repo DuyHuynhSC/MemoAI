@@ -1,12 +1,13 @@
 import React, { useEffect, useRef } from "react";
 import type { Segment } from "../types";
-import { Play } from "lucide-react";
+import { Play, Sparkles } from "lucide-react";
 
 interface TranscriptListProps {
   segments: Segment[];
   currentTime: number;
   onSeek: (time: number) => void;
   onWordClick: (word: string, context: Segment) => void;
+  onAnalyzeSegment?: (segment: Segment) => void;
   showFurigana: boolean;
   showRomaji: boolean;
   showTranslation: boolean;
@@ -19,6 +20,7 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
   currentTime,
   onSeek,
   onWordClick,
+  onAnalyzeSegment,
   showFurigana,
   showRomaji,
   showTranslation,
@@ -68,12 +70,28 @@ export const TranscriptList: React.FC<TranscriptListProps> = ({
               <span>
                 {formatTime(s.start)} - {formatTime(s.end)}
               </span>
-              {isActive && (
-                <span className="flex items-center space-x-1 text-indigo-600 dark:text-indigo-400 font-sans font-medium text-xs">
-                  <Play className="w-3 h-3 fill-current animate-pulse" />
-                  <span>Đang phát</span>
-                </span>
-              )}
+              <div className="flex items-center space-x-2">
+                {isActive && (
+                  <span className="flex items-center space-x-1 text-indigo-600 dark:text-indigo-400 font-sans font-medium text-xs">
+                    <Play className="w-3 h-3 fill-current animate-pulse" />
+                    <span>Đang phát</span>
+                  </span>
+                )}
+                {onAnalyzeSegment && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAnalyzeSegment(s);
+                    }}
+                    title="Phân tích từ vựng & ngữ pháp bằng AI (LLM)"
+                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg text-[11px] font-sans font-semibold bg-indigo-500/10 hover:bg-indigo-600 text-indigo-600 dark:text-indigo-300 hover:text-white border border-indigo-500/20 transition"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Phân tích AI</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             <div

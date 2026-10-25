@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select, or_
 
 from memoai.db import init_db, get_session, engine
-from memoai.models import Project, SegmentRecord, Vocab, AIProfile, AppSettings, User
+from memoai.models import Project, SegmentRecord, Vocab, Grammar, AIProfile, AppSettings, User
 from memoai.services.auth import hash_password, verify_password, create_access_token, decode_access_token
 from memoai.config import settings
 from memoai.logger import setup_logging, get_logger, ProjectLogger, read_project_log, get_project_log_path
@@ -36,7 +36,8 @@ from memoai.providers.mt.openai_mt import OpenAICompatTranslator
 from memoai.pipeline.runner import PipelineRunner
 from memoai.languages.ja import JapaneseLanguagePack
 from memoai.services.dictionary import lookup_word
-from memoai.services.anki import export_anki_deck
+from memoai.services.anki import export_anki_deck, export_grammar_anki_deck
+from memoai.services.analyzer import analyze_sentence, save_analysis_items, _normalize_pattern
 
 # Initialize logger and tables
 setup_logging()
@@ -162,6 +163,13 @@ class RegisterRequest(BaseModel):
     password: str
     full_name: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    jlpt_level: Optional[str] = "N5"
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: Optional[str] = None
+    jlpt_level: Optional[str] = None
+    password: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -220,6 +228,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 class AdminUpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
     role: Optional[str] = None
+    jlpt_level: Optional[str] = None
     password: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -256,6 +265,30 @@ class AddVocabRequest(BaseModel):
     meaning: str
     jlpt: Optional[str] = None
     pos: Optional[str] = None
+    context_sentence: Optional[str] = None
+    context_translation: Optional[str] = None
+
+
+class AddGrammarRequest(BaseModel):
+    pattern: str
+    meaning: str
+    explanation: Optional[str] = None
+    jlpt: Optional[str] = None
+    context_sentence: Optional[str] = None
+    context_translation: Optional[str] = None
+
+
+class AnalyzeSegmentRequest(BaseModel):
+    segment_id: Optional[int] = None
+    sentence: str
+    translation: Optional[str] = None
+    force_refresh: bool = False
+    auto_save: bool = False
+
+
+class SaveBatchAnalysisRequest(BaseModel):
+    vocabs: list[dict] = []
+    grammars: list[dict] = []
     context_sentence: Optional[str] = None
     context_translation: Optional[str] = None
 
@@ -553,10 +586,15 @@ def register_user(req: RegisterRequest, session: Session = Depends(get_session))
     if existing:
         raise HTTPException(status_code=400, detail="Tên đăng nhập đã tồn tại")
 
+    jlpt = (req.jlpt_level or "N5").strip().upper()
+    if jlpt not in ("N5", "N4", "N3", "N2", "N1"):
+        jlpt = "N5"
+
     user = User(
         username=username,
         hashed_password=hash_password(req.password),
         full_name=req.full_name.strip() if req.full_name else None,
+        jlpt_level=jlpt,
         is_active=True,
     )
     session.add(user)
@@ -595,6 +633,7 @@ def register_user(req: RegisterRequest, session: Session = Depends(get_session))
             "username": user.username,
             "full_name": user.full_name,
             "role": user.role,
+            "jlpt_level": user.jlpt_level or "N5",
         },
     }
 
@@ -617,6 +656,7 @@ def login_user(req: LoginRequest, session: Session = Depends(get_session)):
             "username": user.username,
             "full_name": user.full_name,
             "role": user.role,
+            "jlpt_level": getattr(user, "jlpt_level", "N5") or "N5",
         },
     }
 
@@ -628,6 +668,41 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
         "username": current_user.username,
         "full_name": current_user.full_name,
         "role": current_user.role,
+        "jlpt_level": getattr(current_user, "jlpt_level", "N5") or "N5",
+        "created_at": current_user.created_at,
+    }
+
+
+@app.put("/api/auth/profile")
+def update_current_user_profile(
+    req: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    if req.full_name is not None:
+        current_user.full_name = req.full_name.strip() if req.full_name.strip() else None
+
+    if req.jlpt_level is not None:
+        jlpt = req.jlpt_level.strip().upper()
+        if jlpt not in ("N5", "N4", "N3", "N2", "N1"):
+            raise HTTPException(status_code=400, detail="Trình độ JLPT không hợp lệ (chỉ chấp nhận N5 đến N1)")
+        current_user.jlpt_level = jlpt
+
+    if req.password is not None and req.password.strip():
+        if len(req.password.strip()) < 4:
+            raise HTTPException(status_code=400, detail="Mật khẩu mới phải từ 4 ký tự trở lên")
+        current_user.hashed_password = hash_password(req.password.strip())
+
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "full_name": current_user.full_name,
+        "role": current_user.role,
+        "jlpt_level": getattr(current_user, "jlpt_level", "N5") or "N5",
         "created_at": current_user.created_at,
     }
 
@@ -641,6 +716,7 @@ def list_available_users(session: Session = Depends(get_session)):
             "username": u.username,
             "full_name": u.full_name,
             "role": u.role,
+            "jlpt_level": getattr(u, "jlpt_level", "N5") or "N5",
             "created_at": u.created_at,
         }
         for u in users
@@ -663,6 +739,7 @@ def admin_list_users(
             "username": u.username,
             "full_name": u.full_name,
             "role": u.role,
+            "jlpt_level": getattr(u, "jlpt_level", "N5") or "N5",
             "is_active": u.is_active,
             "created_at": u.created_at,
             "project_count": proj_count,
@@ -699,6 +776,11 @@ def admin_update_user(
             raise HTTPException(status_code=400, detail="Vai trò không hợp lệ (chỉ chấp nhận admin hoặc user)")
         target.role = req.role
 
+    if req.jlpt_level is not None:
+        jlpt = req.jlpt_level.strip().upper()
+        if jlpt in ("N5", "N4", "N3", "N2", "N1"):
+            target.jlpt_level = jlpt
+
     if req.password is not None:
         if len(req.password.strip()) < 4:
             raise HTTPException(status_code=400, detail="Mật khẩu mới phải từ 4 ký tự trở lên")
@@ -716,6 +798,7 @@ def admin_update_user(
         "username": target.username,
         "full_name": target.full_name,
         "role": target.role,
+        "jlpt_level": getattr(target, "jlpt_level", "N5") or "N5",
         "is_active": target.is_active,
     }
 
@@ -788,6 +871,7 @@ def get_settings(current_user: User = Depends(get_current_user), session: Sessio
             "username": current_user.username,
             "full_name": current_user.full_name,
             "role": current_user.role,
+            "jlpt_level": getattr(current_user, "jlpt_level", "N5") or "N5",
         },
     }
 
@@ -1438,8 +1522,12 @@ def stream_media(project_id: int, request: Request, current_user: User = Depends
 
 
 @app.get("/api/dictionary/lookup")
-def api_lookup_word(q: str = Query(...), context: Optional[str] = Query(None)):
-    return lookup_word(q, context)
+def api_lookup_word(
+    q: str = Query(...),
+    context: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    return lookup_word(q, context, user_id=current_user.id)
 
 
 @app.get("/api/vocab")
@@ -1449,13 +1537,20 @@ def list_vocab(current_user: User = Depends(get_current_user), session: Session 
 
 @app.post("/api/vocab")
 def add_vocab(req: AddVocabRequest, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    clean_word = req.word.strip()
+    existing = session.exec(
+        select(Vocab).where(Vocab.user_id == current_user.id, Vocab.word == clean_word)
+    ).first()
+    if existing:
+        return existing
+
     vocab = Vocab(
         user_id=current_user.id,
-        word=req.word,
+        word=clean_word,
         reading=req.reading,
         romanized=req.romanized,
         meaning=req.meaning,
-        jlpt=req.jlpt,
+        jlpt=req.jlpt or getattr(current_user, "jlpt_level", "N5") or "N5",
         pos=req.pos,
         context_sentence=req.context_sentence,
         context_translation=req.context_translation,
@@ -1487,6 +1582,91 @@ def export_anki(current_user: User = Depends(get_current_user), session: Session
     export_path = settings.get_data_dir() / f"memoai_japanese_vocab_user_{current_user.id}.apkg"
     export_anki_deck(vocabs, output_path=export_path)
     return FileResponse(export_path, filename="memoai_japanese_vocab.apkg", media_type="application/octet-stream")
+
+
+# ==================== GRAMMAR & LLM SENTENCE ANALYSIS ====================
+
+@app.get("/api/grammar")
+def list_grammar(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.exec(select(Grammar).where(Grammar.user_id == current_user.id).order_by(Grammar.created_at.desc())).all()
+
+
+@app.post("/api/grammar")
+def add_grammar(req: AddGrammarRequest, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    clean_pattern = req.pattern.strip()
+    norm_target = _normalize_pattern(clean_pattern)
+    user_grammars = session.exec(select(Grammar).where(Grammar.user_id == current_user.id)).all()
+    for g in user_grammars:
+        if _normalize_pattern(g.pattern) == norm_target:
+            return g
+
+    grammar = Grammar(
+        user_id=current_user.id,
+        pattern=clean_pattern,
+        meaning=req.meaning,
+        explanation=req.explanation,
+        jlpt=req.jlpt or getattr(current_user, "jlpt_level", "N5") or "N5",
+        context_sentence=req.context_sentence,
+        context_translation=req.context_translation,
+    )
+    session.add(grammar)
+    session.commit()
+    session.refresh(grammar)
+    return grammar
+
+
+@app.delete("/api/grammar/{grammar_id}")
+def delete_grammar(grammar_id: int, current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    grammar = session.get(Grammar, grammar_id)
+    if not grammar:
+        raise HTTPException(status_code=404, detail="Grammar not found")
+    if grammar.user_id and grammar.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Không có quyền xóa mẫu ngữ pháp này")
+    session.delete(grammar)
+    session.commit()
+    return {"ok": True}
+
+
+@app.get("/api/grammar/export/anki")
+def export_grammar_anki(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    grammars = session.exec(select(Grammar).where(Grammar.user_id == current_user.id)).all()
+    if not grammars:
+        raise HTTPException(status_code=400, detail="Chưa có mẫu ngữ pháp nào trong sổ tay.")
+
+    export_path = settings.get_data_dir() / f"memoai_japanese_grammar_user_{current_user.id}.apkg"
+    export_grammar_anki_deck(grammars, output_path=export_path)
+    return FileResponse(export_path, filename="memoai_japanese_grammar.apkg", media_type="application/octet-stream")
+
+
+@app.post("/api/analysis/segment")
+def api_analyze_segment(
+    req: AnalyzeSegmentRequest,
+    current_user: User = Depends(get_current_user),
+):
+    user_level = getattr(current_user, "jlpt_level", "N5") or "N5"
+    return analyze_sentence(
+        sentence=req.sentence,
+        translation=req.translation,
+        user_id=current_user.id or 1,
+        user_level=user_level,
+        segment_id=req.segment_id,
+        force_refresh=req.force_refresh,
+        auto_save=req.auto_save,
+    )
+
+
+@app.post("/api/analysis/save-batch")
+def api_save_analysis_batch(
+    req: SaveBatchAnalysisRequest,
+    current_user: User = Depends(get_current_user),
+):
+    return save_analysis_items(
+        user_id=current_user.id or 1,
+        vocabs=req.vocabs,
+        grammars=req.grammars,
+        context_sentence=req.context_sentence,
+        context_translation=req.context_translation,
+    )
 
 
 @app.get("/api/system/hardware")

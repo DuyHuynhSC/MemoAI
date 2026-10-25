@@ -2,7 +2,7 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlmodel import SQLModel, create_engine, Session, select
 from memoai.config import settings
-from memoai.models import User
+from memoai.models import User, Grammar  # noqa: F401
 from memoai.services.auth import hash_password
 
 DB_PATH = settings.get_data_dir() / "memoai.db"
@@ -15,11 +15,19 @@ def init_db():
     # 1. Auto-migrate SQLite schema columns
     with engine.connect() as conn:
         try:
-            # Auto-migrate User columns (role)
+            # Auto-migrate User columns (role, jlpt_level)
             cursor_u = conn.execute(text("PRAGMA table_info(users)"))
             existing_u_cols = {row[1] for row in cursor_u.fetchall()}
             if "role" not in existing_u_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR DEFAULT 'user'"))
+            if "jlpt_level" not in existing_u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN jlpt_level VARCHAR DEFAULT 'N5'"))
+
+            # Auto-migrate Segments columns (analysis_json)
+            cursor_seg = conn.execute(text("PRAGMA table_info(segments)"))
+            existing_seg_cols = {row[1] for row in cursor_seg.fetchall()}
+            if "analysis_json" not in existing_seg_cols:
+                conn.execute(text("ALTER TABLE segments ADD COLUMN analysis_json TEXT DEFAULT NULL"))
 
             # Auto-migrate AppSettings columns
             cursor = conn.execute(text("PRAGMA table_info(app_settings)"))
@@ -81,6 +89,7 @@ def init_db():
                 hashed_password=hash_password("memoai123"),
                 full_name="Default User",
                 role="user",
+                jlpt_level="N5",
                 is_active=True,
             )
             session.add(default_user)
@@ -95,6 +104,7 @@ def init_db():
                 hashed_password=hash_password("admin123"),
                 full_name="System Administrator",
                 role="admin",
+                jlpt_level="N5",
                 is_active=True,
             )
             session.add(admin_user)
@@ -130,6 +140,8 @@ def init_db():
         try:
             conn.execute(text(f"UPDATE projects SET user_id = {default_uid} WHERE user_id IS NULL"))
             conn.execute(text(f"UPDATE vocabs SET user_id = {default_uid} WHERE user_id IS NULL"))
+            conn.execute(text(f"UPDATE grammars SET user_id = {default_uid} WHERE user_id IS NULL"))
+            conn.execute(text(f"UPDATE users SET jlpt_level = 'N5' WHERE jlpt_level IS NULL OR jlpt_level = ''"))
             conn.execute(text(f"UPDATE ai_profiles SET user_id = {default_uid} WHERE user_id IS NULL AND provider_type != 'faster_whisper'"))
             conn.execute(text("UPDATE ai_profiles SET user_id = NULL WHERE provider_type = 'faster_whisper'"))
             conn.execute(text(f"UPDATE app_settings SET user_id = {default_uid} WHERE user_id IS NULL"))

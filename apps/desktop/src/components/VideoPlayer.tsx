@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
-import { Play, Pause, RotateCcw, Repeat, Headphones, Sliders, Type, Maximize2, Minimize2 } from "lucide-react";
+import { Play, Pause, RotateCcw, Repeat, Headphones, Sliders, Type, Maximize2, Minimize2, Sparkles } from "lucide-react";
 import type { Project, Segment } from "../types";
 import { getMediaUrl } from "../api/client";
 
@@ -10,6 +10,7 @@ interface VideoPlayerProps {
   seekTarget?: number | null;
   onTimeUpdate: (time: number) => void;
   onWordClick: (word: string, context: Segment) => void;
+  onAnalyzeSegment?: (segment: Segment) => void;
   showFurigana: boolean;
   setShowFurigana: (v: boolean) => void;
   showRomaji: boolean;
@@ -33,6 +34,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   seekTarget,
   onTimeUpdate,
   onWordClick,
+  onAnalyzeSegment,
   showFurigana,
   setShowFurigana,
   showRomaji,
@@ -451,6 +453,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 {isShadowing && (isShadowingPaused ? " (Dừng)" : " (Bật)")}
               </span>
             </button>
+
+            {onAnalyzeSegment && (
+              <button
+                onClick={() => {
+                  const targetSeg = displaySegment || activeSegment || segments[0];
+                  if (targetSeg) {
+                    if (videoRef.current && !videoRef.current.paused) {
+                      videoRef.current.pause();
+                      setIsPlaying(false);
+                    }
+                    onAnalyzeSegment(targetSeg);
+                  }
+                }}
+                disabled={segments.length === 0}
+                title="Phân tích từ vựng & ngữ pháp của câu hiện tại bằng LLM"
+                className="p-2 sm:p-2.5 rounded-xl border transition flex items-center space-x-1 sm:space-x-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-md shadow-indigo-600/20 disabled:opacity-40"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Phân tích AI</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center space-x-1.5">

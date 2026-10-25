@@ -11,6 +11,7 @@ class User(SQLModel, table=True):
     hashed_password: str
     full_name: Optional[str] = None
     role: str = Field(default="user")  # "admin" or "user"
+    jlpt_level: str = Field(default="N5", index=True)  # "N5", "N4", "N3", "N2", "N1"
     is_active: bool = Field(default=True)
     created_at: datetime.datetime = Field(
         default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
@@ -19,6 +20,7 @@ class User(SQLModel, table=True):
     projects: list["Project"] = Relationship(back_populates="user", cascade_delete=True)
     ai_profiles: list["AIProfile"] = Relationship(back_populates="user", cascade_delete=True)
     vocabs: list["Vocab"] = Relationship(back_populates="user", cascade_delete=True)
+    grammars: list["Grammar"] = Relationship(back_populates="user", cascade_delete=True)
     settings: list["AppSettings"] = Relationship(back_populates="user", cascade_delete=True)
 
 
@@ -65,6 +67,7 @@ class SegmentRecord(SQLModel, table=True):
     translation: Optional[str] = None
     ruby_html: Optional[str] = None
     romanized: Optional[str] = None
+    analysis_json: Optional[str] = None
 
     project: Optional[Project] = Relationship(back_populates="segments")
 
@@ -87,6 +90,24 @@ class Vocab(SQLModel, table=True):
     )
 
     user: Optional[User] = Relationship(back_populates="vocabs")
+
+
+class Grammar(SQLModel, table=True):
+    __tablename__ = "grammars"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: Optional[int] = Field(default=None, foreign_key="users.id", index=True)
+    pattern: str = Field(index=True)
+    meaning: str
+    explanation: Optional[str] = None
+    jlpt: Optional[str] = None
+    context_sentence: Optional[str] = None
+    context_translation: Optional[str] = None
+    created_at: datetime.datetime = Field(
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+
+    user: Optional[User] = Relationship(back_populates="grammars")
 
 
 class AIProfile(SQLModel, table=True):

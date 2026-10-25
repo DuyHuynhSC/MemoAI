@@ -47,6 +47,7 @@ import {
   updateAdminUser,
   deleteAdminUser,
   getAuthUser,
+  updateUserProfile,
 } from "../api/client";
 import type {
   AIProfile,
@@ -63,6 +64,7 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser?: User | null;
+  onUserUpdated?: (user: User) => void;
   theme?: AppTheme;
   setTheme?: (t: AppTheme) => void;
   jaFontSize?: number;
@@ -76,6 +78,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   currentUser,
+  onUserUpdated,
   theme = "dark",
   setTheme,
   jaFontSize = 26,
@@ -129,6 +132,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [savingSettings, setSavingSettings] = useState(false);
   const [savedSettingsMsg, setSavedSettingsMsg] = useState(false);
+  const [userJlptLevel, setUserJlptLevel] = useState<string>(activeUser?.jlpt_level || "N5");
 
   // Network & Proxy tab state
   const [savingNetwork, setSavingNetwork] = useState(false);
@@ -151,6 +155,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setLoading(true);
     try {
       const data = await fetchSettings();
+      if (data.user?.jlpt_level) {
+        setUserJlptLevel(data.user.jlpt_level);
+      } else if (activeUser?.jlpt_level) {
+        setUserJlptLevel(activeUser.jlpt_level);
+      }
       const validAsr = data.profiles.filter((p) => p.can_asr);
       const validMt = data.profiles.filter((p) => p.can_translate);
       const s = { ...data.settings };
@@ -184,6 +193,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setSavedSettingsMsg(false);
     try {
       await updateSettings(settings);
+      if (userJlptLevel) {
+        const updatedUser = await updateUserProfile({ jlpt_level: userJlptLevel });
+        if (onUserUpdated) onUserUpdated(updatedUser);
+      }
       setSavedSettingsMsg(true);
       setTimeout(() => setSavedSettingsMsg(false), 3000);
     } catch (e) {
@@ -519,6 +532,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* Tab 1: Default Settings */}
             {activeTab === "defaults" && settings && (
               <form onSubmit={handleSaveDefaults} className="py-5 space-y-5 flex-1 overflow-y-auto">
+                <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                      Trình độ tiếng Nhật hiện tại (JLPT N5 - N1)
+                    </h3>
+                    <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-indigo-600 text-white">
+                      JLPT {userJlptLevel}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Khi bấm "Phân tích AI" trong lúc học, LLM sẽ điều chỉnh độ sâu giải thích từ vựng & ngữ pháp phù hợp với trình độ này của bạn.
+                  </p>
+                  <div className="grid grid-cols-5 gap-2">
+                    {["N5", "N4", "N3", "N2", "N1"].map((lvl) => (
+                      <button
+                        key={lvl}
+                        type="button"
+                        onClick={() => setUserJlptLevel(lvl)}
+                        className={`py-2 rounded-xl text-xs font-bold border transition ${
+                          userJlptLevel === lvl
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                            : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400"
+                        }`}
+                      >
+                        {lvl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 space-y-3">
                   <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
                     Bộ nhận dạng giọng nói (ASR) mặc định
